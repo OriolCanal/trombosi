@@ -73,19 +73,19 @@ class Vcf_Class:
         """
         # the ones that I have to add once I have applied the pluggins:
         # "SpliceAI_pred", "CADD_PHRED", "CADD_RAW", "REVEL",
-        #selecting the columns of interest to extract from the pandas dataframe 
-        columns = ["RB","Uploaded_variation" ,"QUAL","%_alt_reads", "count_total_reads","count_alternative_reads", "Consequence", "Gene", "SWISSPROT","cDNA_position", "CDS_position", "Protein_position",
-        "HGVSc", "HGVSp", "HGVSg", "MANE_SELECT", "MANE_PLUS_CLINICAL", "CLIN_SIG", "Existing_variation" ,"UNIPROT_ISOFORM", "MAX_AF", "PHENO",
-        "PUBMED", "Feature_type", "MES-SWA_acceptor_alt", "MES-SWA_acceptor_diff", "MES-SWA_acceptor_ref", "MES-SWA_acceptor_ref_comp",
-        "MES-SWA_donor_alt", "MES-SWA_donor_diff", "MES-SWA_donor_ref", "MES-SWA_donor_ref_comp"]
-        #creating a pd dataframe with the columns of interest
-        #print(pandas_df[columns])
+        # selecting the columns of interest to extract from the pandas dataframe 
+        columns = ["RB", "Uploaded_variation", "QUAL", "%_alt_reads", "count_total_reads","count_alternative_reads", "Consequence", "Gene", "SWISSPROT","cDNA_position", "CDS_position", "Protein_position",
+                    "HGVSc", "HGVSp", "HGVSg", "MANE_SELECT", "MANE_PLUS_CLINICAL", "CLIN_SIG", "Existing_variation" ,"UNIPROT_ISOFORM", "MAX_AF", "PHENO",
+                    "PUBMED", "Feature_type", "MES-SWA_acceptor_alt", "MES-SWA_acceptor_diff", "MES-SWA_acceptor_ref", "MES-SWA_acceptor_ref_comp",
+                    "MES-SWA_donor_alt", "MES-SWA_donor_diff", "MES-SWA_donor_ref", "MES-SWA_donor_ref_comp"]
+        # creating a pd dataframe with the columns of interest
+        # print(pandas_df[columns])
         return(pandas_df[columns])
 
     def df_to_excel (self, final_pd):
         """Create an excel in /directory/excels/ with the data extracted from vep with the selecting columns from extracting_columns function"""
 
-        #create the excel directory if it does not exist
+        # create the excel directory if it does not exist
         dir_exists = os.path.exists(self.excel_path)
         if dir_exists:
             pass  
@@ -93,7 +93,7 @@ class Vcf_Class:
         else:
             os.mkdir(self.excel_path)
 
-        #extracting the pandas dataframe to an excel
+        # Extracting the pandas dataframe to an excel
 
         final_pd.to_excel(self.excel_file_path)
         logging.info(f"Results are written to excel {self.excel_file_path} successfully!")
@@ -173,13 +173,146 @@ class Vcf_Class:
     
     def add_df_qual( self, pd_df, qual):
 
-        pd_df["QUAL"] = qual
+        pd_df["vcf_QUAL"] = qual
         return(pd_df)
 
     def add_df_coverage(self, pddf, coverage_variant):
-        
+        """
+        add the coverage of the SNP to the final dataframe"""
         pddf["coverage"] = coverage_variant
         return(pddf)
+
+    def call_rate_perc(self, mosdepth_pddf, qual_dict):
+        """determines the % of regions specified in the trombosi bed file are covered 
+        by a certain number of reads (1 10 20 30 100 200)"""
+        
+        mosdepth_pddf = mosdepth_pddf.reset_index() #make sure indexes pair with number of rows
+
+        #setting all the values of coverage to 0
+        coverage_dic = {}
+        x1_region_call = x10_region_call = x20_region_call = x30_region_call = x100_region_call = x200_region_call = 0
+        x1_exon_lost = x10_exon_lost = x20_exon_lost = x30_exon_lost = x100_exon_lost = x200_exon_lost = 0
+    
+       
+        for index, row in mosdepth_pddf.iterrows():
+
+            start = int(row["start"])
+            end = int(row["end"])
+            length = end - start
+            x1_bases = int(row["1X"])
+            x10_bases = int(row["10X"])
+            x20_bases = int(row["20X"])
+            x30_bases = int(row["30X"])
+            x100_bases = int(row["100X"])
+            x200_bases = int(row["200X"])
+
+            if x200_bases >= length:
+                x200_region_call += 1
+
+            elif x100_bases >= length:
+                x100_region_call += 1
+
+            elif x30_bases >= length:
+                x30_region_call += 1
+            
+            elif x20_bases >= length:
+                x20_region_call += 1
+            
+            elif x10_bases >= length:
+                x10_region_call += 1
+
+            elif x1_bases >= length:
+                x1_region_call += 1
+
+            else:
+                #logging.critical(f"Be aware! the region {str(row["region"])} has not been covered for the sample {self.getID}")
+                pass
+
+            if x1_bases < length:
+                x1_exon_lost += 1
+
+            elif x10_bases < length:
+                x10_exon_lost += 1
+
+            elif x20_bases < length:
+                x20_exon_lost += 1
+
+            elif x30_bases < length:
+                x30_exon_lost += 1
+
+            elif x100_bases < length:
+                x100_exon_lost += 1
+
+            elif x200_bases < length:
+                x200_exon_lost += 1
+            
+
+            
+        #number of regions is equal to the number of dataframe rows
+        number_exons = mosdepth_pddf.shape[0]
+
+        #a lower call rate will also be covered if a higher call rate has been called
+        #e.g. the number of regions covered by 200x will also be covered by the others call rates
+        x100_region_call += x200_region_call
+        x30_region_call += x100_region_call
+        x20_region_call += x30_region_call
+        x10_region_call += x20_region_call
+        x1_region_call += x10_region_call 
+
+        #Otherwise, in exon lost is the contrary, if a exon is not covered at 1x,
+        #it means that it won't be covered at higher coverages
+        x10_exon_lost += x1_exon_lost
+        x20_exon_lost += x10_exon_lost
+        x30_exon_lost += x20_exon_lost
+        x100_exon_lost += x30_exon_lost
+        x200_exon_lost += x100_exon_lost
+
+        qual_dict["x1_exon_lost"] = x1_exon_lost
+        qual_dict["x10_exon_lost"] = x10_exon_lost
+        qual_dict["x20_exon_lost"] = x20_exon_lost
+        qual_dict["x30_exon_lost"] = x30_exon_lost
+        qual_dict["x100_exon_lost"] = x100_exon_lost
+        qual_dict["x200_exon_lost"] = x200_exon_lost
+        
+
+        #converting call rates to % and adding to qual dict
+        qual_dict["x200_call_percent"] = (x200_region_call / number_exons) * 100
+        qual_dict["x100_call_percent"] = (x100_region_call / number_exons) * 100
+        qual_dict["x30_call_percent"] = (x30_region_call / number_exons) * 100
+        qual_dict["x20_call_percent"] = (x20_region_call / number_exons) * 100
+        qual_dict["x10_call_percent"] = (x10_region_call / number_exons) * 100
+        qual_dict["x1_call_percent"] = (x1_region_call / number_exons) * 100
+
+        qual_dict["numb_exons"] = number_exons
+
+        qual_dict["RB"] = self.get_full_ID()
+
+        return(qual_dict)
+    
+
+    def get_mean_coverage (self, qual_dict):
+        full_path = f"{directory}mosdepth/"
+        file = f"{self.get_full_ID()}_mosdepth.regions.bed.gz"
+        full_file = full_path + file
+
+        colnames = ["chr", "start", "end", "region", "coverage"]
+
+        mosdepth_pddf = pd.read_csv(f"{full_file}", compression="gzip", names = colnames, sep="\t", comment="#")
+        
+        #number of exons is equal to the number of rows of the dataframe:
+        number_exons = mosdepth_pddf.shape[0]
+
+        #sum all the coverages
+        sum_coverage = mosdepth_pddf["coverage"].sum()
+
+        mean_coverage = sum_coverage/number_exons
+
+        qual_dict["mean_coverage"] = mean_coverage
+
+        for key,value in qual_dict.items():
+            print (key, value)
+
+        return(qual_dict)
 
     def extract_variant_coverage (self, mosdepth_pddf, chrom=str, pos= int):
         """
@@ -221,7 +354,13 @@ class Vcf_Class:
         else:
             return ("not_into_bed_interval")
 
+    def qual_excel (qual_dict):
 
+        excel_filename= f"{directory}Quality_excel"
+        qual_pddf = pd.DataFrame(qual_dict, index = [0])
+        qual_pddf.to_excel(excel_filename, index = False, header=False,mode= 'a')
+
+        return(0)
 
     def extract_ref_alt_reads ( self, values_list):
         alt_reads_list = []
@@ -283,21 +422,24 @@ pandasdt = Vcf_file_Class.vep_parser()
 pd_dt_RB = Vcf_file_Class.add_RB_column(pandasdt)
 #Filter the rare variants (population frequency < 0.1%) We take a frequency of 0.001 considering that vep gives us the 
 pandas_filtered = Vcf_file_Class.filtering_df_by_AlleFreq(pd_dt_RB, 0.001)
-print(pandas_filtered)
+#print(pandas_filtered)
 vcf_pd=Vcf_file_Class.vcf_to_pd()
 uploaded_variation = Vcf_file_Class.list_uploaded_variation(pandas_filtered)
 uploaded_variation_list = Vcf_file_Class.split_uploaded_variation(uploaded_variation)
 mosdepth_pddf = Vcf_file_Class.get_coverage()
+qual_dict = {}
+qual_dict = Vcf_file_Class.call_rate_perc(mosdepth_pddf, qual_dict)
+Vcf_file_Class.get_mean_coverage(qual_dict)
 #print(uploaded_variation)
 rare_variant_qual = []
 rare_variant_info = []
 coverage_variant= []
-print(uploaded_variation_list)
+#print(uploaded_variation_list)
 for uploaded_variation in uploaded_variation_list:
     rare_variant_qual.append(float(Vcf_file_Class.extract_vcf_column(vcf_pd, "QUAL" , chrom = uploaded_variation[0], pos = uploaded_variation[1])))
     rare_variant_info.append(list(Vcf_file_Class.extract_vcf_column(vcf_pd, "20" , chrom = uploaded_variation[0], pos = uploaded_variation[1])))
-    coverage_variant.append(list(Vcf_file_Class.extract_variant_coverage(mosdepth_pddf, chrom=uploaded_variation[0], pos=uploaded_variation[1])))
-
+    coverage_variant.append(str(Vcf_file_Class.extract_variant_coverage(mosdepth_pddf, chrom=uploaded_variation[0], pos=uploaded_variation[1])))
+print (f"coverage variant: \n {coverage_variant}\n final coverage variant ")
 #print (f"info list = {rare_variant_info}")
 #print(f"dfa {str(rare_variant_info[0][0])}")
 #print (f"qual list = {rare_variant_qual}")
@@ -311,7 +453,7 @@ reads_df =Vcf_file_Class.reads_counts_to_df(qual_df, alt_reads_list, total_reads
 
 #Extracting the columns that we want in the final excel
 reduced_pandas = Vcf_file_Class.extracting_columns(pandas_filtered)
-
+Vcf_file_Class.qual_excel(qual_dict)
 #Creating the resulting excel
 Vcf_file_Class.df_to_excel(reduced_pandas)
 

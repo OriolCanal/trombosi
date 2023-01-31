@@ -6,13 +6,8 @@ from trombosis import *
 from errors import *
 import pandas as pd
 import io
-from bs4 import BeautifulSoup
-import json
-import vcf
 
-
-
-#common variables to define the reference genome path and file
+# common variables to define the reference genome path and file
 reference_genome_path = "/home/ocanal/vep_data/fasta_file/grch37/"
 abs_reference_genome_file = f"{reference_genome_path}GRCh37.p13.genome.fa"
 reference_genome_file = "GRCh37.p13.genome.fa"
@@ -23,11 +18,13 @@ class FASTQ_file:
     Class with different methods to work with BAM files
     """
 
-
-
     def __init__(self, fastQ_file):
         self.fastq_file = fastQ_file
         self.fastq_absPath = f"{directory}{self.fastq_file}"
+        self.abs_bed_folder = "/home/ocanal/vep_data/tromb_bed/"
+        self.bed_file = "THROMBOSIS.V1.61.CDS.bed"
+        self.abs_bed_file = f"{self.abs_bed_folder}{self.bed_file}"
+        
 
     def get_ID(self):
         """
@@ -36,7 +33,7 @@ class FASTQ_file:
         ID_regex_exp = "[A-Z]{2}[0-9]{5}"
         ID = re.search(ID_regex_exp, self.fastq_file).group(0)
         
-        #Raising error if the ID nomenclature is not valid
+        # Raising error if the ID nomenclature is not valid
         if (ID):
             return (ID)
         else:
@@ -51,7 +48,7 @@ class FASTQ_file:
         lane = re.search(lane_regex_exp, self.fastq_file).group(0)
 
         if (lane):
-            return(lane)
+            return (lane)
         else:
             logging.critical(f"The format of the file {self.fastq_file} is not correct, the lane LXXX where X are digits have not been found.")
             
@@ -76,7 +73,9 @@ class FASTQ_file:
             print(f"A new directory to store html from fastqc has been created in: {output_directory}")
 
         # run fastQC
-        subprocess.run(["fastqc", "-o", output_file, self.fastq_file])
+        cmd = (f"fastqc -o {output_file} {self.fastq_file}")
+        logging.info(cmd)
+        subprocess.run(cmd, shell= True)
 
 
     def trim_fastq(self):
@@ -122,12 +121,30 @@ class FASTQ_file:
         else:
             os.makedirs(output_folder)
             logging.info(f"A new directory to store sam files has been created in: {output_folder}")
-        logging.info("aligning to reference genome")      
+        logging.info("aligning to reference genome")  
 
+        cmd = f"bwa mem -M -t 4 {abs_reference_genome_file}, {trimmed_fastq} -o {sam_file}"
         #the docker container of the bwa: biocontainer/bwa can't be installed so I did it using subprocess.run
-        subprocess.run(["bwa", "mem", "-M", "-t", "4", abs_reference_genome_file, trimmed_fastq, "-o", sam_file])
-        logging.info("alignment finished!")
+        logging.info(cmd)
+        subprocess.run(cmd, shell=True)
         return(sam_file)
+    
+    def enrichment (self, bam, qual_dict):
+        """
+        Calculating enrichment factor = number of reads aligned in bed regions / number of total reads aligned
+        """
+        # -L bed file, -c count, -F 260 only primary aligned mapped reads
+        aligned_to_bed_cmd = f"samtools view -L {self.abs_bed_file} -c -F 260 {bam}"
+
+        logging.info(f"counting the number of reads aligned into bed regions:\n {aligned_to_bed_cmd}")
+        aligned_bed_proces = subprocess.run(aligned_to_bed_cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True )
+        aliigned_reads_bed = float(aligned_bed_proces.stdout)
+        
+
+        qual_dict["reads_aligned_in_bed"] = aliigned_reads_bed
+
+        return(qual_dict)
+
 
     def sam_to_sorted_bam (self, sam):
         """
@@ -163,7 +180,9 @@ class FASTQ_file:
         logging.info(f"Creating the index file: \n {cmd3}")
         subprocess.run(cmd3, shell=True)
 
-        return(sorted_bam_file)
+        return (sorted_bam_file)
+
+
 
 class Paired_FASTQ_file(FASTQ_file):
     """
@@ -175,32 +194,185 @@ class Paired_FASTQ_file(FASTQ_file):
         self.fastq_absPath = f"{directory}{self.fastq_file}"
         self.paired_fastq_file = paired_fastq_file
         self.paired_fastq_absPath = f"{directory}{self.paired_fastq_file}"
+        self.abs_bed_folder = "/home/ocanal/vep_data/tromb_bed/"
+        self.bed_file = "THROMBOSIS.V1.61.CDS.bed"
+        self.abs_bed_file = f"{self.abs_bed_folder}{self.bed_file}"
 
 
-    def quality_check_fastq(self):
+    def quality_check_fastq(self, qual_dict):
         """
         Perform a quality check of the fastq data and generate HTML report
         """
         logging.info(f"Performing the quality check of the FastQ files {self.fastq_file, self.paired_fastq_file} ")
-        #define ouptut directory and file
-        output_directory = f"{directory}/Quality_report"
+        # define ouptut directory and file
+        output_directory = f"{directory}Quality_report/"
 
-
-        #create directory where output will be stored if it doesn't exist
+        # create directory where output will be stored if it doesn't exist
         dirExists = os.path.exists(output_directory)
         if dirExists:
             pass
         else:
             os.makedirs(output_directory)
             print(f"A new directory to store html from fastqc has been created in: {output_directory}")
-        print (f"fastqc", "-o", f"{output_directory}/", self.fastq_absPath, self.paired_fastq_absPath)
-        # run fastQC
-        subprocess.run(["fastqc", "-o", f"{output_directory}/", self.fastq_absPath, self.paired_fastq_absPath])
+        #run fastQC
+        cmd = f"fastqc --extract -o {output_directory} {self.fastq_absPath} {self.paired_fastq_absPath}"
+
+        logging.info (f"Running FastQC:\n{cmd}")
+        result = subprocess.run(cmd, shell = True)
+
+        #the output dirname of the fasqc is the fastq file but instead of .fastq is _fastq
+        fastqc_dir = self.fastq_file.replace(".", "_")
+        fastqc_dir2 = self.paired_fastq_file.replace(".", "_")
+        fastqc_file = f"{output_directory}{fastqc_dir}c/fastqc_data.txt"
+        fastqc_file2 = f"{output_directory}{fastqc_dir2}c/fastqc_data.txt"
+        print (fastqc_dir)
+
+        with open(fastqc_file) as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+                
+                if line.startswith("##FastQC"):
+                    fastqc = line.split("\t")
+                    qual_dict["fastqc_version"] = fastqc[1]
+
+                if line.startswith("Encoding"):
+                    encoding_l = line.split("\t")
+                    qual_dict["encoding"] = encoding_l[1]
+
+                if line.startswith("Total Sequences"):
+                    total_seq_l = line.split("\t")
+                    qual_dict["total_sequences_R1"] = total_seq_l[1]
+
+                if line.startswith("Sequences flagged as poor quality"):
+                    freq_poor_qual_l = line.split("\t")
+                    qual_dict["seq_poor_quality_R1"] = freq_poor_qual_l[1]
+
+                if line.startswith("Sequence length"):
+                    seq_len_l = line.split("\t")
+                    qual_dict["seq_len_R1"] = seq_len_l[1]
+
+                if line.startswith("%GC"):
+                    GC_l = line.split("\t")
+                    qual_dict["GC_R1_perc"] = GC_l[1]
+
+                if line.startswith(">>Per base sequence quality"):
+                    base_qual_l = line.split("\t")
+                    qual_dict["per_base_seq_qual_R1"] = base_qual_l[1]
+
+                if line.startswith(">>Per tile sequence quality"):
+                    tile_qual_l = line.split("\t")
+                    qual_dict["per_tile_seq_qual_R1"] = tile_qual_l[1]
+
+                if line.startswith(">>Per sequence quality score"):
+                    seq_qual_score_l = line.split("\t")
+                    qual_dict["seq_qual_score_R1"] = seq_qual_score_l[1]
+
+                if line.startswith(">>Per base sequence content"):
+                    base_qual_cont_l = line.split("\t")
+                    qual_dict["base_qual_cont_R1"] = base_qual_cont_l[1]
+
+                if line.startswith(">>Per sequence GC content"):
+                    GC_cont_l = line.split("\t")
+                    qual_dict["GC_cont_dist_R1"] = GC_cont_l[1]
+
+                if line.startswith(">>Per base N content"):
+                    base_N_content_l = line.split("\t")
+                    qual_dict["per_base_N_cont_R1"] = base_N_content_l[1]
+
+                if line.startswith(">>Sequence Length Distribution"):
+                    seq_len_dist_l = line.split("\t")
+                    qual_dict["seq_len_dist_R1"] = seq_len_dist_l[1]
+
+                if line.startswith(">>Sequence Duplication Levels"):
+                    seq_dupl_levels_l = line.split("\t")
+                    qual_dict["seq_duplic_level_R1"] = seq_dupl_levels_l[1]
+                
+                if line.startswith(">>Overrepresented sequences"):
+                    overrepresented_l = line.split("\t")
+                    qual_dict["overrepresented_seq_R1"] = overrepresented_l[1]
+
+                if line.startswith(">>Adapter Content"):
+                    adapter_content_l = line.split("\t")
+                    qual_dict["adapter_content_R1"] = adapter_content_l[1]
+
+                
+
+                
+                
+
+                
+
+        with open(fastqc_file2) as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines):
+
+                if line.startswith("Total Sequences"):
+                    total_seq_l = line.split("\t")
+                    qual_dict["total_sequences_R2"] = total_seq_l[1]
+
+                if line.startswith("Sequences flagged as poor quality"):
+                    freq_poor_qual_l = line.split("\t")
+                    qual_dict["seq_poor_quality_R2"] = freq_poor_qual_l[1]
+
+                if line.startswith("Sequence length"):
+                    seq_len_l = line.split("\t")
+                    qual_dict["seq_len_R2"] = seq_len_l[1]
+
+                if line.startswith("%GC"):
+                    GC_l = line.split("\t")
+                    qual_dict["GC_R2_perc"] = GC_l[1]
+
+                if line.startswith(">>Per base sequence quality"):
+                    base_qual_l = line.split("\t")
+                    qual_dict["per_base_seq_qual_R2"] = base_qual_l[1]
+
+                if line.startswith(">>Per tile sequence quality"):
+                    tile_qual_l = line.split("\t")
+                    qual_dict["per_tile_seq_qual_R2"] = tile_qual_l[1]
+
+                if line.startswith(">>Per sequence quality score"):
+                    seq_qual_score_l = line.split("\t")
+                    qual_dict["seq_qual_score_R2"] = seq_qual_score_l[1]
+
+                if line.startswith(">>Per base sequence content"):
+                    base_qual_cont_l = line.split("\t")
+                    qual_dict["base_qual_cont_R2"] = base_qual_cont_l[1]
+
+                if line.startswith(">>Per sequence GC content"):
+                    GC_cont_l = line.split("\t")
+                    qual_dict["GC_cont_dist_R2"] = GC_cont_l[1]
+
+                if line.startswith(">>Per base N content"):
+                    base_N_content_l = line.split("\t")
+                    qual_dict["per_base_N_cont_R2"] = base_N_content_l[1]
+
+                if line.startswith(">>Sequence Length Distribution"):
+                    seq_len_dist_l = line.split("\t")
+                    qual_dict["seq_len_dist_R2"] = seq_len_dist_l[1]
+
+                if line.startswith(">>Sequence Duplication Levels"):
+                    seq_dupl_levels_l = line.split("\t")
+                    qual_dict["seq_duplic_level_R2"] = seq_dupl_levels_l[1]
+                
+                if line.startswith(">>Overrepresented sequences"):
+                    overrepresented_l = line.split("\t")
+                    qual_dict["overrepresented_seq_R2"] = overrepresented_l[1]
+
+                if line.startswith(">>Adapter Content"):
+                    adapter_content_l = line.split("\t")
+                    qual_dict["adapter_content_R2"] = adapter_content_l[1]
+
+
+ 
+        for key, value in qual_dict.items():
+            print (key,value)
+
+
 
         return (0)
 
 
-    def trim_fastq(self):
+    def trim_fastq(self, qual_dict):
         """ 
         Trimmomatic will remove low-quality base calls from the beginning and end of the reads, apply a sliding window trimming
         algorithm to remove low-quality bases and discard reads that are shorter that 50 bases after trimming
@@ -233,10 +405,42 @@ class Paired_FASTQ_file(FASTQ_file):
         {reverse_unpaired_trimmed_fastq} \
         {trimmomatic_params}"
 
+        logging.info(trim_cmd)
         #run trimmomatic using subprocess.run  
-        subprocess.run(trim_cmd, shell= True)
+        result = subprocess.run(trim_cmd, stderr = subprocess.PIPE, stdout= subprocess.PIPE, shell = True)
+        
+        stderr = str(result.stderr)
+        print(stderr)
+        total_read_pairs_match = re.search("Read Pairs: (\d+)", stderr).group(0)
+        surviving_reads_match = re.search ("Both Surviving: (\d+)", stderr).group(0)
+        only_forward_drop_match = re.search("Forward Only Surviving: (\d+)", stderr).group(0)
+        only_reverse_drop_match = re.search("Reverse Only Surviving: (\d+)", stderr).group(0)
+        dropped_match = re.search("Dropped: (\d+)", stderr).group(0)
 
-        return (forward_paired_trimmed_fastq, forward_unpaired_trimmed_fastq, reverse_paired_trimmed_fastq, reverse_unpaired_trimmed_fastq)
+        #obtaining the output quality parameters
+        total_read_pairs = int(total_read_pairs_match.replace("Read Pairs: ", ""))
+        surviving_reads_pairs = int(surviving_reads_match.replace("Both Surviving: ", ""))
+        only_forward_drop = int(only_forward_drop_match.replace("Forward Only Surviving: ", ""))
+        only_reverse_drop = int(only_reverse_drop_match.replace("Reverse Only Surviving: ", ""))
+        dropped = int(dropped_match.replace("Dropped: ", ""))
+
+        #transforming the output quality parameters to %
+        surviving_reads_pairs_perc = (surviving_reads_pairs / total_read_pairs) * 100
+        only_forward_drop_perc = (only_forward_drop / total_read_pairs) * 100
+        only_reverse_drop_perc = (only_reverse_drop / total_read_pairs) * 100
+        dropped_perc = (dropped / total_read_pairs) * 100
+
+        qual_dict["total_read_pairs"] = total_read_pairs
+        qual_dict["surviving_reads_pairs"] = surviving_reads_pairs
+        qual_dict["surviving_reads_pairs_perc"] = surviving_reads_pairs_perc
+        qual_dict["only_forward_drop"] = only_forward_drop
+        qual_dict["only_forward_drop_perc"]= only_forward_drop_perc
+        qual_dict["only_reverse_drop"] = only_reverse_drop
+        qual_dict["only_reverse_drop_perc"] = only_reverse_drop_perc
+        qual_dict["dropped_trim"] = dropped
+        qual_dict["dropped_perc_trim"] = dropped_perc
+
+        return (forward_paired_trimmed_fastq, forward_unpaired_trimmed_fastq, reverse_paired_trimmed_fastq, reverse_unpaired_trimmed_fastq, qual_dict)
 
 
     def align_to_reference_hg38(self, forward_paired_trimmed_fastq, reverse_paired_trimmed_fastq):
@@ -272,21 +476,23 @@ class Paired_FASTQ_file(FASTQ_file):
 
 
         #command to run bwa mem for the alignment of the reads to the reference genome hg38
+        # UNCOMMENT
         cmd = ["bwa", "mem",
-            "-t 4", #use 3 threads
-            "-M", #mark secondary alignments
-            "-S", #output in sam format
-            abs_reference_genome_file,
-            forward_paired_trimmed_fastq,
-            reverse_paired_trimmed_fastq,
-            #"-o",
-            #sam
-            ]
-        
-        print(cmd)
+             "-t 4", #use 3 threads
+             "-M", #mark secondary alignments
+             "-S", #output in sam format
+             abs_reference_genome_file,
+             forward_paired_trimmed_fastq,
+             reverse_paired_trimmed_fastq,
+            # "-o",
+            # bam
+             ]
+        logging.info(cmd)
+        #print(cmd)
 
         result = subprocess.run(cmd, cwd=sam_folder, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+        print (result.stderr)
         if result.returncode == 0:
             logging.info("Alignment was successful!")
             #redirect the output to the output aligned file
@@ -304,6 +510,7 @@ class Bam_file:
     def __init__(self,bam_file):
         self.bam_absPath = bam_file
         self.bam_file = self.bam_absPath.replace(directory,"")
+
         
     def get_bamfile (self):
         return (self.bam_file)
@@ -359,6 +566,7 @@ class Bam_file:
         """
 
         integrity_cmd = f"samtools quickcheck -v {self.bam_absPath}"
+        logging.info(f"Checking the integrity of the bam file:\n {integrity_cmd}")
         cmd_output = subprocess.run(integrity_cmd, shell = True)
         cmd_stderr= cmd_output.stderr.strip()
         if cmd_stderr:
@@ -387,7 +595,7 @@ class Bam_file:
         bed_file = "THROMBOSIS.V1.61.CDS.bed"
 
         cmd = f"docker run -v {directory}:/work_data -v {abs_bed}:/bed {mosdepth} mosdepth --fast-mode --thresholds 1,10,20,30,100,200 --by /bed/{bed_file}  /work_data/{mosdepth_rel_f} /work_data/{self.get_bamfile()}"
-        print(f"RUNNING MOSDEPTH TO OBTAIN THE COVERAGE:\n {cmd}")
+        logging.info(f"running mosdepth to obtain coverage parameters: \n {cmd}")
         subprocess.run(cmd, shell=True)
 
         #converting the output to a pandas dataframe
@@ -398,24 +606,30 @@ class Bam_file:
         print(mosdepth_pddf)
         return(mosdepth_pddf)
 
-    def reads_stats(self):
+    def reads_stats(self, qual_dict):
         """
         read different stats from the bam file
         """
+
         cmd_samtools = f"samtools flagstat {self.bam_absPath}"
+        logging.info(f"Parsing Bam file parameters: \n {cmd_samtools}")
+
         samtools_output = subprocess.run(cmd_samtools, shell=True, stdout = PIPE, stderr = PIPE)
-        samtools_stderr = samtools_output.stderr
-        samtools_stdout = samtools_output.stdout
+        samtools_stderr = samtools_output.stderr.decode("utf-8")
+        samtools_stdout = samtools_output.stdout.decode("utf-8")
         
         #print the output of the command to a stats_txt file
-        with open(f"{directory}/BAM/{self.get_ID()}_BAM_stats.txt", "a") as stats_f:
+        with open(f"{directory}/BAM/{self.get_ID()}_BAM_stats.txt", "w") as stats_f:
             print(samtools_stdout, file=stats_f)
 
         print (samtools_stdout)
+        samtools_stdout = str(samtools_stdout)
         #taking the different output values and assigning it to variables
         output_lines = []
-        for line in samtools_stdout.splitlines():
-            output_lines.append(str(line))
+        lines = samtools_stdout.split("\n")
+        for line in lines:
+            print (f"line: {line}")
+            output_lines.append(line)
 
             word_list = line.split(" ")
             pattern = re.compile(r"^\d+")
@@ -442,7 +656,7 @@ class Bam_file:
                 duplicates_failed = word_list[2]
 
             elif "mapped (" in line:
-                mapped = word_list[0]
+                mapped = int(word_list[0])
                 mapped_failed = word_list[2]
                 percentage = word_list[4].replace("(","")
 
@@ -479,29 +693,36 @@ class Bam_file:
             elif "with mate mapped to a different chr" in line:
                 pair_in_dif_chr =  word_list[0]
                 pair_in_dif_chr_failed =  word_list[2]
+       
 
             #The format will be type: passed QCfilters + not passed QCfilters
-        metrics_dict = {
+        not_used_dict = {
         "RB" : self.get_ID(),
-        "Total": QC_passed_reads + " + " + QC_failed_reads,
-        "Secondary": secondary + " + " + secondary_failed,
-        "Supplementary": supplementary + " + " + supplementary_failed,
-        "Duplicates": duplicates + " + " + duplicates_failed,
-        "Mapped" : mapped + " + " + mapped_failed + " + " + percentage + "%",
-        "Paired_in_seq" : paired_in_seq + " + " + paired_in_seq_failed,
-        "Read1" : read1 + " + " + read1_failed,
-        "Read2" : read2 + " + " + read2_failed,
-        "Properly_paired" : properly_paired + " + " + properly_paired_failed + " + " + properly_paired_percentage + "%",
-        "Both_reads_mapped" : both_reads_mapped + " + " + both_reads_mapped_failed,
-        "Singletons" : singletons + " + " + singletons_failed + " + " + singletons_percentage + "%",
-        "Pair_in_dif_chr" : pair_in_dif_chr + " + " + pair_in_dif_chr_failed,
+        "Total": f"{QC_passed_reads} + {QC_failed_reads}",
+        "Secondary": f"{secondary} + {secondary_failed}",
+        "Supplementary": f"{supplementary} + {supplementary_failed}",
+        "Duplicates": f"{duplicates} + {duplicates_failed}",
+        "Mapped" : f"{mapped} +  {mapped_failed} + {percentage}%",
+        "Paired_in_seq" : f"{paired_in_seq} + {paired_in_seq_failed}",
+        "Read1" : f"{read1} + {read1_failed}",
+        "Read2" : f"{read2} + {read2_failed}",
+        "Properly_paired" : f"{properly_paired} + {properly_paired_failed} + {properly_paired_percentage}%",
+        "Both_reads_mapped" : f"{both_reads_mapped} + {both_reads_mapped_failed}",
+        "Singletons" : f"{singletons} + {singletons_failed} + {singletons_percentage} + %",
+        "Pair_in_dif_chr" : f"{pair_in_dif_chr} + {pair_in_dif_chr_failed}",
+        }
+        percentage_enrichment = (qual_dict["reads_aligned_in_bed"] / mapped) * 100
+
+        qual_dict = {
+            "Total_mapped_reads": mapped,
+            "enrichment_factor_%": percentage_enrichment
         }
 
         if samtools_stderr:
             logging.warning(f" when analysing file {self.bam_file} STDERR is the following:\n {samtools_stderr}")
         
-        print(metrics_dict)
-        return (metrics_dict)
+        print(qual_dict)
+        return (qual_dict)
 
 
     def group_reads (self):
@@ -511,7 +732,7 @@ class Bam_file:
 
         output_directory = f"{directory}/grouped_reads"
         gatk_version = "broadinstitute/gatk:4.1.3.0"
-        output_file = f"grouped_reads/{self.get_ID()}.gr"
+        output_file = f"grouped_reads/{self.get_ID()}.gr.bam"
 
         dir_exists = os.path.exists(output_directory)
         if dir_exists:
@@ -533,7 +754,7 @@ class Bam_file:
 		  -RGPL ILLUMINA \
 		  -RGPU unit1 \
 		  -RGSM 20"
-
+        logging.info(f"Add or replace groups:\n {cmd}")
         subprocess.run(cmd, shell=True)
         path_output_file=f"{output_directory}/{self.get_ID()}.gr"
         return(path_output_file)
@@ -548,7 +769,7 @@ class Bam_file:
         gr_marked_bam_file = f"{duplicates_folder}/{self.get_ID()}markDuplicates.bam" 
 
         #we will use the grouped bam file as the input file (output of addorreplacegroups)
-        gr_bam = f"{directory}grouped_reads/{self.get_ID()}.gr"
+        gr_bam = f"{directory}grouped_reads/{self.get_ID()}.gr.bam"
 
         #Create the output folder if it doesn't existreference_ge
         dirExists = os.path.exists(duplicates_folder)
@@ -565,6 +786,8 @@ class Bam_file:
             -I {gr_bam}\
             -O {gr_marked_bam_file}\
             -M {metrics_file}"
+
+        logging.info(f"Marking duplicates: \n {duplicates_cmd}")
 
         subprocess.run(duplicates_cmd, shell= True)
 
@@ -598,21 +821,23 @@ class Bam_file:
         else:
             os.mkdir(quality_recab_folder)   
 
-        #create metrics file for base recalibrator (If I don't open the file an error appears: the metrics file doesn't exist) 
-
+        # create metrics file for base recalibrator (If I don't open the file an error appears: the metrics file doesn't exist) 
+        # UNCOMMENT
         recal_cmd = f"docker run \
-        -v {directory}:/work_data \
-        -v $HOME/vep_data:/opt/vep/.vep:Z \
-        -v {gatk_common_variants_file}:/dbSNP \
-        -it {gatk_version} gatk BaseRecalibrator \
-        -I /work_data/{rel_duplicates_file} \
-        -R /opt/vep/.vep/fasta_file/grch37/GRCh37.p13.genome.fa \
-        --known-sites /dbSNP/00-All.vcf.gz\
-        -O /work_data/{rel_metrics_f}"
-        print(recal_cmd)
+         -v {directory}:/work_data \
+         -v $HOME/vep_data:/opt/vep/.vep:Z \
+         -v {gatk_common_variants_file}:/dbSNP \
+         -it {gatk_version} gatk BaseRecalibrator \
+         -I /work_data/{rel_duplicates_file} \
+         -R /opt/vep/.vep/fasta_file/grch37/GRCh37.p13.genome.fa \
+         --known-sites /dbSNP/00-All.vcf.gz\
+         -O /work_data/{rel_metrics_f}"
+        
+        logging.info(f"Appliying base recalibration: \n {recal_cmd}")
+        # print(recal_cmd)
         subprocess.run(recal_cmd, shell=True)
 
-        #apply base recalibration based on metrix file
+        # apply base recalibration based on metrix file
         apply_recal_cmd = f"docker run \
         -v {directory}:/work_data \
         -v $HOME/vep_data:/opt/vep/.vep:Z \
@@ -621,7 +846,7 @@ class Bam_file:
         -I /work_data/{rel_duplicates_file} \
         --bqsr-recal-file /work_data/{rel_metrics_f} \
         -O /work_data/{rel_ready_bam}"
-
+        logging.info(apply_recal_cmd)
         subprocess.run(apply_recal_cmd, shell = True)
 
         return(abs_ready_bam)
@@ -635,6 +860,7 @@ class Bam_file:
         abs_ready_bam_ind = f"{abs_ready_bam}.bai"
 
         cmd = f"samtools index {abs_ready_bam} {abs_ready_bam_ind}"
+        logging.info(f"indexing Bam file:\n {cmd}")
         subprocess.run(cmd, shell=True)
 
     def haplotype_caller (self):
@@ -646,7 +872,8 @@ class Bam_file:
         dir_exists = os.path.exists(output_directory)
         rel_output_file = f"vcf/{self.get_full_ID()}.vcf.gz"
         rel_ready_bam = f"ready_BAM/{self.get_ID()}_recab.bam"
-        
+        bed_panel_path = "/home/ocanal/vep_data/tromb_bed"
+        bed_panel_file = "THROMBOSIS.V1.61.CDS.bed"
         if dir_exists:
             pass 
 
@@ -656,19 +883,23 @@ class Bam_file:
         reference_genome = "GRCh37.p13.genome.fa" 
         gatk_version = "broadinstitute/gatk:4.1.3.0"
         #bed file is where the regions of interest are defined
-        #add these 2 lines to define the regions of interest of the genome (not used because are defined in grch19 and we are using grch38)
+        #these 2 lines to define the regions of interest of the genome
         #bed_file = "THROMBOSIS.V1.61.CDS.bed"
         #          -L /reference/{bed_file} \
 
         cmd = f"docker run \
         -v {directory}:/work_data \
+        -v {bed_panel_path}:/bed_panel \
         -v {reference_genome_path}:/reference \
         -it {gatk_version} gatk HaplotypeCaller \
+        -L /bed_panel/{bed_panel_file} \
         -R /reference/{reference_genome} \
         -I /work_data/{rel_ready_bam} \
         -O /work_data/{rel_output_file}"
 
-        print (f"Running Haplotype caller: \n {cmd}")
+
+
+        logging.info(f"Running Haplotype caller: \n {cmd}")
         subprocess.run(cmd, shell=True )
 
 
@@ -728,8 +959,8 @@ class Vcf_Class:
         path_SpliceAI_indel = "/opt/vep/.vep/SpliceAI/ghrc38/spliceai_scores.raw.indel.hg38.vcf.gz"
 
         #CADD path
-        path_snvCADD = "/opt/vep/.vep/CADD/gnomad.genomes.r2.1.1.snv.tsv.gz"
-        path_indelsCADD = "/opt/vep/.vep/CADD/gnomad.genomes.r2.1.1.indel.tsv.gz"
+        path_snvCADD = "/opt/vep/.vep/CADD/hg19/gnomad.genomes.r2.1.1.snv.tsv.gz"
+        path_indelsCADD = "/opt/vep/.vep/CADD/hg19/gnomad.genomes.r2.1.1.indel.tsv.gz"
 
         #The :Z in the docker volume is to give root privilegies to the mounted volume (to read/write files)
 
@@ -752,10 +983,12 @@ class Vcf_Class:
         --assembly GRCh37 \
         --hgvsg --everything --force_overwrite \
         -i /work_data/{self.rel_path} \
+        --plugin REVEL,{path_revel_data}\
+        --plugin CADD,{path_snvCADD},{path_indelsCADD}\
         --plugin MaxEntScan,{maxEntScan_data},SWA \
         -o /work_data/{rel_ouptut_file}"
 
-        print(f"RUNNING VEP:\n {cmd}")
+        logging.info(f"Running VEP:\n {cmd}")
         run = subprocess.run(cmd, shell=True)
 
 
@@ -870,8 +1103,17 @@ class Vcf_Class:
         else:
             return ("not_covered")
 
-    def add_coverage_df (pddf, coverage_list):
-        pddf["coverage"]= coverage_list
+    def get_coverage(self):
+
+        abs_output_dir = f"{directory}/mosdepth/"        
+        
+        colnames = ["chrom", "start", "end", "region", "1X", "10X", "20X", "30X", "100X", "200X"]
+        mosdepth_pddf = pd.read_csv(f"{abs_output_dir}RB31799_mosdepth.thresholds.bed.gz", compression="gzip", names = colnames, sep="\t", comment="#")
+        print(mosdepth_pddf)
+        return(mosdepth_pddf)
+
+    def add_coverage_df (self, pddf, coverage_list):
+        pddf["exon_coverage"]= coverage_list
         return(pddf)
 
     def extract_ref_alt_reads ( self, values_list):
@@ -908,6 +1150,185 @@ class Vcf_Class:
         pd_df["QUAL"] = qual
         return(pd_df)
 
+    def add_df_coverage(self, pddf, coverage_variant):
+        """
+        add the coverage of the SNP to the final dataframe"""
+        pddf["exon_coverage"] = coverage_variant
+        return(pddf)
+
+    def call_rate_perc(self, mosdepth_pddf, qual_dict):
+        """determines the % of regions specified in the trombosi bed file are covered 
+        by a certain number of reads (1 10 20 30 100 200)"""
+        
+        mosdepth_pddf = mosdepth_pddf.reset_index() #make sure indexes pair with number of rows
+
+        #setting all the values of coverage to 0
+        coverage_dic = {}
+        x1_region_call = x10_region_call = x20_region_call = x30_region_call = x100_region_call = x200_region_call = 0
+        x1_exon_lost = x10_exon_lost = x20_exon_lost = x30_exon_lost = x100_exon_lost = x200_exon_lost = 0
+        print("hey entering into coverage thing")
+        print(f"just entered to the call_rate_per and dictionary is: \n {qual_dict}")
+       
+        for index, row in mosdepth_pddf.iterrows():
+
+            start = int(row["start"])
+            end = int(row["end"])
+            length = end - start
+            x1_bases = int(row["1X"])
+            x10_bases = int(row["10X"])
+            x20_bases = int(row["20X"])
+            x30_bases = int(row["30X"])
+            x100_bases = int(row["100X"])
+            x200_bases = int(row["200X"])
+
+            if x200_bases >= length:
+                x200_region_call += 1
+
+            elif x100_bases >= length:
+                x100_region_call += 1
+
+            elif x30_bases >= length:
+                x30_region_call += 1
+            
+            elif x20_bases >= length:
+                x20_region_call += 1
+            
+            elif x10_bases >= length:
+                x10_region_call += 1
+
+            elif x1_bases >= length:
+                x1_region_call += 1
+
+            else:
+                #logging.critical(f"Be aware! the region {str(row["region"])} has not been covered for the sample {self.getID}")
+                pass
+
+            if x1_bases < length:
+                x1_exon_lost += 1
+
+            elif x10_bases < length:
+                x10_exon_lost += 1
+
+            elif x20_bases < length:
+                x20_exon_lost += 1
+
+            elif x30_bases < length:
+                x30_exon_lost += 1
+
+            elif x100_bases < length:
+                x100_exon_lost += 1
+
+            elif x200_bases < length:
+                x200_exon_lost += 1
+            
+        #number of regions is equal to the number of dataframe rows
+        number_exons = mosdepth_pddf.shape[0]
+
+        #a lower call rate will also be covered if a higher call rate has been called
+        #e.g. the number of regions covered by 200x will also be covered by the others call rates
+        x100_region_call += x200_region_call
+        x30_region_call += x100_region_call
+        x20_region_call += x30_region_call
+        x10_region_call += x20_region_call
+        x1_region_call += x10_region_call 
+
+        #Otherwise, in exon lost is the contrary, if a exon is not covered at 1x,
+        #it means that it won't be covered at higher coverages
+        x10_exon_lost += x1_exon_lost
+        x20_exon_lost += x10_exon_lost
+        x30_exon_lost += x20_exon_lost
+        x100_exon_lost += x30_exon_lost
+        x200_exon_lost += x100_exon_lost
+
+        qual_dict["x1_exon_lost"] = x1_exon_lost
+        qual_dict["x10_exon_lost"] = x10_exon_lost
+        qual_dict["x20_exon_lost"] = x20_exon_lost
+        qual_dict["x30_exon_lost"] = x30_exon_lost
+        qual_dict["x100_exon_lost"] = x100_exon_lost
+        qual_dict["x200_exon_lost"] = x200_exon_lost
+        
+
+        #converting call rates to % and adding to qual dict
+        qual_dict["x200_call_percent"] = (x200_region_call / number_exons) * 100
+        qual_dict["x100_call_percent"] = (x100_region_call / number_exons) * 100
+        qual_dict["x30_call_percent"] = (x30_region_call / number_exons) * 100
+        qual_dict["x20_call_percent"] = (x20_region_call / number_exons) * 100
+        qual_dict["x10_call_percent"] = (x10_region_call / number_exons) * 100
+        qual_dict["x1_call_percent"] = (x1_region_call / number_exons) * 100
+
+        qual_dict["numb_exons"] = number_exons
+
+        qual_dict["RB"] = self.get_full_ID()
+
+        return(qual_dict)
+        
+    def get_mean_coverage (self, qual_dict):
+        full_path = f"{directory}mosdepth/"
+        file = f"{self.get_full_ID()}_mosdepth.regions.bed.gz"
+        full_file = full_path + file
+
+        colnames = ["chr", "start", "end", "region", "coverage"]
+
+        mosdepth_pddf = pd.read_csv(f"{full_file}", compression="gzip", names = colnames, sep="\t", comment="#")
+        
+        #number of exons is equal to the number of rows of the dataframe:
+        number_exons = mosdepth_pddf.shape[0]
+
+        #sum all the coverages
+        sum_coverage = mosdepth_pddf["coverage"].sum()
+
+        mean_coverage = sum_coverage/number_exons
+
+        qual_dict["mean_coverage"] = mean_coverage
+
+        for key,value in qual_dict.items():
+            print (key, value)
+
+        return(qual_dict)
+
+    def extract_variant_coverage (self, mosdepth_pddf, chrom=str, pos= int):
+        """
+        It takes the rare variant from the mosdepth output (comparing that the SNP position is
+        between the position interval of mosdepth), it takes the 
+        minimum x (x10, x20, x30... meaning that all bases are paired at least by this number of reads)
+        and returns the maximum xnumber that all bases are covered by x number of reads.
+        """
+        print(chrom, pos)
+        try:
+            x1 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "1X"]).astype(int).item()
+            x10 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "10X"]).astype(int).item()
+            x20 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "20X"]).astype(int).item()
+            x30 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "30X"]).astype(int).item()
+            x100 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "100X"]).astype(int).item()
+            x200 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "200X"]).astype(int).item()
+            start = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "start"]).astype(int).item()
+            end = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "end"]).astype(int).item()
+            bases = end - start
+        except:
+            x1 = x10 = x20 = x30 = x100 = x200 = 0
+            start = 0
+            end = 1
+            bases = 1
+            
+        print(x1, x10, x20, x30, x100, x200, start, end, bases)
+        if x200 >= bases:
+            return ("200x")
+        elif x100 >= bases:
+            return ("100x")
+        elif x30 >= bases:
+            return ("30x")
+        elif x20 >= bases:
+            return("20x")
+        elif x10 >= bases:
+            return("10x")
+        elif x1 >= bases:
+            return("1x")
+        else:
+            return ("not_into_bed_interval")
+
+
+
+
 
     def reads_counts_to_df (self, pd_df, alt_reads_list, total_reads_list, percent_alt_list):
         
@@ -925,19 +1346,19 @@ class Vcf_Class:
         """
         # the ones that I have to add once I have applied the pluggins:
         # "SpliceAI_pred", "CADD_PHRED", "CADD_RAW", "REVEL",
-        #selecting the columns of interest to extract from the pandas dataframe 
-        columns = ["RB", "Uploaded_variation", "coverage", "QUAL", "%_alt_reads", "count_total_reads", "count_alternative_reads", "Consequence", "Gene", "SWISSPROT","cDNA_position", "CDS_position", "Protein_position",
+        # selecting the columns of interest to extract from the pandas dataframe 
+        columns = ["RB", "Uploaded_variation", "exon_coverage", "QUAL", "%_alt_reads", "count_total_reads", "count_alternative_reads", "Consequence", "Gene", "SWISSPROT","cDNA_position", "CDS_position", "Protein_position",
         "HGVSc", "HGVSp", "HGVSg", "MANE_SELECT", "MANE_PLUS_CLINICAL", "CLIN_SIG", "Existing_variation" ,"UNIPROT_ISOFORM", "MAX_AF", "PHENO",
         "PUBMED", "Feature_type", "MES-SWA_acceptor_alt", "MES-SWA_acceptor_diff", "MES-SWA_acceptor_ref", "MES-SWA_acceptor_ref_comp",
         "MES-SWA_donor_alt", "MES-SWA_donor_diff", "MES-SWA_donor_ref", "MES-SWA_donor_ref_comp"]
-        #creating a pd dataframe with the columns of interest
+        # creating a pd dataframe with the columns of interest
         print(pandas_df[columns])
         return(pandas_df[columns])
 
     def df_to_excel (self, final_pd):
         """Create an excel in /directory/excels/ with the data extracted from vep with the selecting columns from extracting_columns function"""
 
-        #create the excel directory if it does not exist
+        # create the excel directory if it does not exist
         dir_exists = os.path.exists(self.excel_path)
         if dir_exists:
             pass  
@@ -945,7 +1366,7 @@ class Vcf_Class:
         else:
             os.mkdir(self.excel_path)
 
-        #extracting the pandas dataframe to an excel
+        # extracting the pandas dataframe to an excel
 
         final_pd.to_excel(self.excel_file_path)
         logging.info(f"Results are written to excel {self.excel_file_path} successfully!")
