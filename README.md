@@ -2,6 +2,8 @@
 
 ## Pipeline description
 
+To run this pipeline we need to have the plugins installed, and the cache file of the vep program also installed
+
 ### Command line arguments
 
 Mandatory:
@@ -11,6 +13,12 @@ Mandatory:
 Optional:
 
 -r, --reference: path where reference genome file is stored along with its bwa index files
+
+
+### Algorithm steps:
+
+* First of all the pipeline decompress the fastq.gz files that are in the input directory. Once the files are decompressed, it lists all the fastq files and match them according to the RB code (creating a list of lists containing paired end reads fastq files, and a list of single fastq files).
+* The paired-end reads are analysed using fastq and give the output parameters to a quality dictionary.
 
 
 ```
