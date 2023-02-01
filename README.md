@@ -1,10 +1,10 @@
 # trombosi
 
 ```
-docker pull broadinstitute/picard
-docker pull ensemblorg/ensembl-vep
-docker pull broadinstitute/gatk
-docker pull quay.io/biocontainers/mosdepth
+sudo docker pull broadinstitute/picard
+sudo docker pull ensemblorg/ensembl-vep
+sudo docker pull broadinstitute/gatk
+sudo docker pull quay.io/biocontainers/mosdepth
 ```
 
 docker images:
