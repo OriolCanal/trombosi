@@ -1,5 +1,18 @@
 # trombosi
 
+## Pipeline description
+
+### Command line arguments
+
+Mandatory:
+
+-d, --input_directory: input directory where fastq or fastq.gz files are stored
+
+Optional:
+
+-r, --reference: path where reference genome file is stored along with its bwa index files
+
+
 ```
 sudo docker pull broadinstitute/picard
 sudo docker pull ensemblorg/ensembl-vep
