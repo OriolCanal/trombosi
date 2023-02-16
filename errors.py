@@ -11,6 +11,11 @@ class NotPairedReads(Exception):
 #errmsg= f"Paired reads for FastQ files with ID {ID} have not been identified"
 #raise NotPairedReads(ID,errmsg)
 
+class FilesNotFound(Exception):
+	def __init__(self, message):
+		self.message = message
+		super().__init__(self.message)
+
 class moreThanTwoReads(Exception):
 	"""Exception raised when an ID has more than 2 reads"""
 

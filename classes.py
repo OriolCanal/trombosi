@@ -8,24 +8,52 @@ import pandas as pd
 import io
 
 # common variables to define the reference genome path and file
-reference_genome_path = "/home/ocanal/vep_data/fasta_file/grch37/"
-abs_reference_genome_file = f"{reference_genome_path}GRCh37.p13.genome.fa"
-reference_genome_file = "GRCh37.p13.genome.fa"
+reference_genome_path = os.path.dirname(reference)
+abs_reference_genome_file = reference
+reference_genome_file = os.path.basename(reference)
 
 
 class FASTQ_file:
     """
-    Class with different methods to work with BAM files
+    Class with different methods to work with fastq files
+
+    Attributes
+    ----------
+    fastQ_file = fastq filename 
+
+    Methods
+    -------
+
+    get_sample_number : str
+        obtain the sample number of the fastq file
+    get_ID : str
+        obtain the ID of the fastq file
+    get_lane_number : str
+        obtain the lane of the fastq file
+    quality_check_fastq : None
+        Perform quality check using FastQC 
+    trim_fastq : None
+        Perform trimming using trimmomatic
+    align_to_reference_hg37 : str 
+        Perform the alignemnt of the fastq files and return the path of the sam file
+    enrichment : dict
+        Calculate the total number of reads aligned in bed regions
+    sam_to_sorted_bam : str
+        converts a sam file into a sorted bam file along with its index file
     """
 
     def __init__(self, fastQ_file):
         self.fastq_file = fastQ_file
         self.fastq_absPath = f"{directory}{self.fastq_file}"
-        self.abs_bed_folder = "/home/ocanal/vep_data/tromb_bed/"
-        self.bed_file = "THROMBOSIS.V1.61.CDS.bed"
-        self.abs_bed_file = f"{self.abs_bed_folder}{self.bed_file}"
         
+    def get_sample_number(self):
+        """
+        get the Sample number of the fastq file
+        """
 
+        sample_number = self.fastq_file.split("_")[1]
+        return(sample_number)
+        
     def get_ID(self):
         """
         get the RB of the file
@@ -71,11 +99,13 @@ class FASTQ_file:
         else:
             os.makedirs(output_directory)
             print(f"A new directory to store html from fastqc has been created in: {output_directory}")
-
-        # run fastQC
-        cmd = (f"fastqc -o {output_file} {self.fastq_file}")
-        logging.info(cmd)
-        subprocess.run(cmd, shell= True)
+        
+        #if the output file is not already created
+        if not os.path.isfile(output_file):
+            # run fastQC
+            cmd = (f"fastqc -o {output_file} {self.fastq_file}")
+            logging.info(cmd)
+            subprocess.run(cmd, shell= True)
 
 
     def trim_fastq(self):
@@ -84,14 +114,14 @@ class FASTQ_file:
         algorithm to remove low-quality bases and discard reads that are shorter that 50 bases after trimming
         """
 
-        #define ouptut file and folder
+        # define ouptut file and folder
         output_folder = f"{directory}FastQ_Trimmed"
         trimmed_fastq = f"{output_folder}/{self.get_ID}_trim.fastq"
 
-        #Set the Trimmomatic parameters
+        # Set the Trimmomatic parameters
         trimmomatic_params = "LEADING:20", "TRAILING:20", "SLIDINGWINDOW:4:20", "MINLEN:50"
 
-        #create folder if it doesn't exist
+        # create folder if it doesn't exist
         dirExists = os.path.exists(output_folder)
         if dirExists:
             pass
@@ -99,13 +129,14 @@ class FASTQ_file:
             os.makedirs(output_folder)
             print(f"A new directory to store trimmed fastq has been created in: {output_folder}")
 
-        #run trimmomatic using subprocess.run
+        
+        # run trimmomatic using subprocess.run
         subprocess.run(["trimmomatic", "SE", "-phred33", self.fastq_file, trimmed_fastq, trimmomatic_params])
 
         return (trimmed_fastq)
 
 
-    def align_to_reference_hg38 (self, trimmed_fastq):
+    def align_to_reference_hg37 (self, trimmed_fastq):
         """
         Align the fastq file to a reference genome (hg38)
         """
@@ -123,7 +154,7 @@ class FASTQ_file:
             logging.info(f"A new directory to store sam files has been created in: {output_folder}")
         logging.info("aligning to reference genome")  
 
-        cmd = f"bwa mem -M -t 4 {abs_reference_genome_file}, {trimmed_fastq} -o {sam_file}"
+        cmd = f"bwa mem -M {abs_reference_genome_file}, {trimmed_fastq} -o {sam_file}"
         #the docker container of the bwa: biocontainer/bwa can't be installed so I did it using subprocess.run
         logging.info(cmd)
         subprocess.run(cmd, shell=True)
@@ -134,16 +165,16 @@ class FASTQ_file:
         Calculating enrichment factor = number of reads aligned in bed regions / number of total reads aligned
         """
         # -L bed file, -c count, -F 260 only primary aligned mapped reads
-        aligned_to_bed_cmd = f"samtools view -L {self.abs_bed_file} -c -F 260 {bam}"
-
+        aligned_to_bed_cmd = f"samtools view -L {abs_bed_file} -c -F 260 {bam}"
+        print(aligned_to_bed_cmd)
         logging.info(f"counting the number of reads aligned into bed regions:\n {aligned_to_bed_cmd}")
         aligned_bed_proces = subprocess.run(aligned_to_bed_cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, shell=True )
+        print(aligned_bed_proces.stdout)
         aliigned_reads_bed = float(aligned_bed_proces.stdout)
         
-
         qual_dict["reads_aligned_in_bed"] = aliigned_reads_bed
 
-        return(qual_dict)
+        return (qual_dict)
 
 
     def sam_to_sorted_bam (self, sam):
@@ -155,7 +186,7 @@ class FASTQ_file:
         bam_file = f"{bam_folder}/{self.get_ID()}.bam"
         sorted_bam_file = f"{bam_folder}/{self.get_ID()}_sorted.bam"
 
-        #create folder if it doesn't exist
+        # create folder if it doesn't exist
         dirExists = os.path.exists(bam_folder)
         if dirExists:
             pass
@@ -163,22 +194,25 @@ class FASTQ_file:
             os.makedirs(bam_folder)
             print(f"A new directory to store bam files has been created in: {bam_folder}")
 
-        #I can't download biocontainer/samtools so I will run it on command line with subprocess run 
+        # I can't download biocontainer/samtools so I will run it on command line with subprocess run 
 
-        #create the bam file from the sam file
+        # create the bam file from the sam file
         cmd1 = f"samtools view -S -b {sam} > {bam_file}"
         logging.info(f"Compressing the SAM file into a BAM file : \n{cmd1}")
         subprocess.run(cmd1, shell=True)
 
-        #sort the bam file
+        # sort the bam file
         cmd2 = f"samtools sort {bam_file} -o {sorted_bam_file}"
         logging.info(f"Sorting the BAM file: \n {cmd2}")
         subprocess.run(cmd2, shell=True)
 
-        #create the index bam file
+        # create the index bam file
         cmd3 = f"samtools index {sorted_bam_file}"
         logging.info(f"Creating the index file: \n {cmd3}")
         subprocess.run(cmd3, shell=True)
+
+        if not os.path.isfile(sorted_bam_file):
+            raise (FilesNotFound("The sorted bam file hasn't been craeted"))
 
         return (sorted_bam_file)
 
@@ -187,16 +221,42 @@ class FASTQ_file:
 class Paired_FASTQ_file(FASTQ_file):
     """
     class for fastq paired end reads files
+
+    Attributes
+    ----------
+    fastq_file : str
+        fastq filename pair 1
+    paired_fastq_file : str
+        fastq filename pair 2
+
+    Methods: 
+    -------
+    get_sample_number : str
+        obtain the sample number of the fastq file
+    get_ID : str
+        obtain the ID of the fastq file
+    get_lane_number : str
+        obtain the lane of the fastq file
+    quality_check_fastq : None
+        Perform quality check using FastQC 
+    trim_fastq : None
+        Perform trimming using trimmomatic
+    align_to_reference_hg37 : str 
+        Perform the alignemnt of the fastq files and return the path of the sam file
+    enrichment : dict
+        Calculate the total number of reads aligned in bed regions
+    sam_to_sorted_bam : str
+        converts a sam file into a sorted bam file along with its index file
     """
+
+    
+
 
     def __init__(self, fastq_file, paired_fastq_file):
         self.fastq_file = fastq_file
         self.fastq_absPath = f"{directory}{self.fastq_file}"
         self.paired_fastq_file = paired_fastq_file
         self.paired_fastq_absPath = f"{directory}{self.paired_fastq_file}"
-        self.abs_bed_folder = "/home/ocanal/vep_data/tromb_bed/"
-        self.bed_file = "THROMBOSIS.V1.61.CDS.bed"
-        self.abs_bed_file = f"{self.abs_bed_folder}{self.bed_file}"
 
 
     def quality_check_fastq(self, qual_dict):
@@ -214,19 +274,19 @@ class Paired_FASTQ_file(FASTQ_file):
         else:
             os.makedirs(output_directory)
             print(f"A new directory to store html from fastqc has been created in: {output_directory}")
-        #run fastQC
+        # run fastQC
         cmd = f"fastqc --extract -o {output_directory} {self.fastq_absPath} {self.paired_fastq_absPath}"
 
         logging.info (f"Running FastQC:\n{cmd}")
         result = subprocess.run(cmd, shell = True)
 
-        #the output dirname of the fasqc is the fastq file but instead of .fastq is _fastq
+        # the output dirname of the fasqc is the fastq file but instead of .fastq is _fastq
         fastqc_dir = self.fastq_file.replace(".", "_")
         fastqc_dir2 = self.paired_fastq_file.replace(".", "_")
         fastqc_file = f"{output_directory}{fastqc_dir}c/fastqc_data.txt"
         fastqc_file2 = f"{output_directory}{fastqc_dir2}c/fastqc_data.txt"
-        print (fastqc_dir)
-
+        if not os.path.isfile(fastqc_file):
+            raise(FilesNotFound(f"FastQC output file: {fastqc_file} has not been found"))
         with open(fastqc_file) as f:
             lines = f.readlines()
             for i, line in enumerate(lines):
@@ -300,7 +360,8 @@ class Paired_FASTQ_file(FASTQ_file):
                 
                 
 
-                
+        if not os.path.isfile(fastqc_file2):
+            raise(FilesNotFound(f"The FastQC output file:{fastqc_file2} have not been found"))                
 
         with open(fastqc_file2) as f:
             lines = f.readlines()
@@ -362,13 +423,6 @@ class Paired_FASTQ_file(FASTQ_file):
                     adapter_content_l = line.split("\t")
                     qual_dict["adapter_content_R2"] = adapter_content_l[1]
 
-
- 
-        for key, value in qual_dict.items():
-            print (key,value)
-
-
-
         return (0)
 
 
@@ -385,6 +439,10 @@ class Paired_FASTQ_file(FASTQ_file):
         forward_unpaired_trimmed_fastq = f"{output_folder}/{self.get_ID()}_unpaired_F.fastq"
         reverse_unpaired_trimmed_fastq = f"{output_folder}/{self.get_ID()}_unpaired_R.fastq"
         
+        trim_output_files = [forward_paired_trimmed_fastq,
+                            reverse_paired_trimmed_fastq,
+                            forward_unpaired_trimmed_fastq,
+                            reverse_unpaired_trimmed_fastq]
         #Set the Trimmomatic parameters
         trimmomatic_params = "LEADING:20 TRAILING:20 SLIDINGWINDOW:4:20 MINLEN:50"
 
@@ -409,8 +467,11 @@ class Paired_FASTQ_file(FASTQ_file):
         #run trimmomatic using subprocess.run  
         result = subprocess.run(trim_cmd, stderr = subprocess.PIPE, stdout= subprocess.PIPE, shell = True)
         
+        for trim_output_file in trim_output_files:
+            if not os.path.isfile(trim_output_file):
+                raise(FilesNotFound(f"Trimmomatic output {trim_output_file} has not been found"))
+
         stderr = str(result.stderr)
-        print(stderr)
         total_read_pairs_match = re.search("Read Pairs: (\d+)", stderr).group(0)
         surviving_reads_match = re.search ("Both Surviving: (\d+)", stderr).group(0)
         only_forward_drop_match = re.search("Forward Only Surviving: (\d+)", stderr).group(0)
@@ -462,25 +523,24 @@ class Paired_FASTQ_file(FASTQ_file):
             print(f"A new directory to store html from fastqc has been created in: {sam_folder}")
 
         #defining the output files of the indexing necessary to run bwa-mem
-        output_index_files = [f"{reference_genome_path}{reference_genome_file}.amb",
-        f"{reference_genome_path}{reference_genome_file}.ann",
-        f"{reference_genome_path}{reference_genome_file}.pac"]
+        output_index_files = [f"{reference_genome_path}/{reference_genome_file}.amb",
+        f"{reference_genome_path}/{reference_genome_file}.ann",
+        f"{reference_genome_path}/{reference_genome_file}.pac"]
 
         #checking if the reference genome have been indexed to run bwa-mem
         for output_index_f in output_index_files:
-            if os.path.exists(output_index_f):
-                pass
-            else:
+            if not os.path.exists(output_index_f):
                 logging.critical(f"The index file for the reference genome in order to run bwa-mem has not been found. Please execute the following command: \
                     bwa index {abs_reference_genome_file}")
+                raise(FilesNotFound(f"reference index file: {output_index_f}"))
 
 
         #command to run bwa mem for the alignment of the reads to the reference genome hg38
         # UNCOMMENT
         cmd = ["bwa", "mem",
-             "-t 4", #use 3 threads
              "-M", #mark secondary alignments
              "-S", #output in sam format
+             "-t 6", #using 6 CPUs   
              abs_reference_genome_file,
              forward_paired_trimmed_fastq,
              reverse_paired_trimmed_fastq,
@@ -488,10 +548,9 @@ class Paired_FASTQ_file(FASTQ_file):
             # bam
              ]
         logging.info(cmd)
-        #print(cmd)
 
+        #UNCOMMENT
         result = subprocess.run(cmd, cwd=sam_folder, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
         print (result.stderr)
         if result.returncode == 0:
             logging.info("Alignment was successful!")
@@ -546,7 +605,6 @@ class Bam_file:
             return: RB22106_9999999
         """
         regex_exp ="[A-Z]{2}[0-9]{5}"
-        print (self.bam_file)
         full_ID = re.search(regex_exp, self.bam_file).group(0)
 
         if (full_ID):
@@ -578,32 +636,38 @@ class Bam_file:
         """
         run mosdepth to obtain depth calculations of the BAM file. 
         """
-        abs_output_dir = f"{directory}/mosdepth/"
+        abs_output_dir = f"{directory}mosdepth/"
         rel_output_dir = "mosdepth/"
-        dir_exists = os.path.exists(abs_output_dir)
-        if dir_exists:
-            pass 
-        else:
+
+        if not os.path.exists(abs_output_dir):
             os.mkdir(abs_output_dir)
 
         mosdepth = "quay.io/biocontainers/mosdepth:0.2.4--he527e40_0"
         mosdepth_outname = f"{self.get_ID()}_mosdepth"
         mosdepth_rel_f = f"{rel_output_dir}{mosdepth_outname}"
 
+        cmd = f"docker run \
+            -v {directory}:/work_data \
+            -v {bed_folder}:/bed \
+            {mosdepth} mosdepth \
+            --fast-mode \
+            --thresholds 1,10,20,30,100,200 \
+            --by /bed/{bed_file} \
+            /work_data/{mosdepth_rel_f} \
+            /work_data/{self.get_bamfile()}"
 
-        abs_bed = "/home/ocanal/vep_data/tromb_bed/"
-        bed_file = "THROMBOSIS.V1.61.CDS.bed"
-
-        cmd = f"docker run -v {directory}:/work_data -v {abs_bed}:/bed {mosdepth} mosdepth --fast-mode --thresholds 1,10,20,30,100,200 --by /bed/{bed_file}  /work_data/{mosdepth_rel_f} /work_data/{self.get_bamfile()}"
         logging.info(f"running mosdepth to obtain coverage parameters: \n {cmd}")
         subprocess.run(cmd, shell=True)
 
         #converting the output to a pandas dataframe
         thresholds_output = f"{abs_output_dir}{mosdepth_outname}.thresholds.bed.gz"
         
+        if not os.path.isfile(thresholds_output):
+            raise (FilesNotFound(f"Mosdepth output file {thresholds_output} does not exist!"))
+
         colnames = ["chrom", "start", "end", "region", "1X", "10X", "20X", "30X", "100X", "200X"]
         mosdepth_pddf = pd.read_csv(thresholds_output, compression="gzip", names = colnames, sep="\t", comment="#")
-        print(mosdepth_pddf)
+
         return(mosdepth_pddf)
 
     def reads_stats(self, qual_dict):
@@ -622,24 +686,19 @@ class Bam_file:
         with open(f"{directory}/BAM/{self.get_ID()}_BAM_stats.txt", "w") as stats_f:
             print(samtools_stdout, file=stats_f)
 
-        print (samtools_stdout)
         samtools_stdout = str(samtools_stdout)
         #taking the different output values and assigning it to variables
         output_lines = []
         lines = samtools_stdout.split("\n")
         for line in lines:
-            print (f"line: {line}")
             output_lines.append(line)
-
             word_list = line.split(" ")
             pattern = re.compile(r"^\d+")
             
             if "total" in line:
                 QC_passed_reads = word_list[0]
                 QC_failed_reads = word_list[2]
-                print (f"QC_passed_reads : {QC_passed_reads}")
                 total_reads = QC_failed_reads + QC_passed_reads
-                #print (f"passed: {QC_passed_reads}\n failed: {QC_failed_reads}")
 
             elif "secondary" in line:
                 # look for digits in the line
@@ -697,31 +756,31 @@ class Bam_file:
 
             #The format will be type: passed QCfilters + not passed QCfilters
         not_used_dict = {
-        "RB" : self.get_ID(),
-        "Total": f"{QC_passed_reads} + {QC_failed_reads}",
-        "Secondary": f"{secondary} + {secondary_failed}",
-        "Supplementary": f"{supplementary} + {supplementary_failed}",
-        "Duplicates": f"{duplicates} + {duplicates_failed}",
-        "Mapped" : f"{mapped} +  {mapped_failed} + {percentage}%",
-        "Paired_in_seq" : f"{paired_in_seq} + {paired_in_seq_failed}",
-        "Read1" : f"{read1} + {read1_failed}",
-        "Read2" : f"{read2} + {read2_failed}",
-        "Properly_paired" : f"{properly_paired} + {properly_paired_failed} + {properly_paired_percentage}%",
-        "Both_reads_mapped" : f"{both_reads_mapped} + {both_reads_mapped_failed}",
-        "Singletons" : f"{singletons} + {singletons_failed} + {singletons_percentage} + %",
-        "Pair_in_dif_chr" : f"{pair_in_dif_chr} + {pair_in_dif_chr_failed}",
+                        "RB" : self.get_ID(),
+                        "Total": f"{QC_passed_reads} + {QC_failed_reads}",
+                        "Secondary": f"{secondary} + {secondary_failed}",
+                        "Supplementary": f"{supplementary} + {supplementary_failed}",
+                        "Duplicates": f"{duplicates} + {duplicates_failed}",
+                        "Mapped" : f"{mapped} +  {mapped_failed} + {percentage}%",
+                        "Paired_in_seq" : f"{paired_in_seq} + {paired_in_seq_failed}",
+                        "Read1" : f"{read1} + {read1_failed}",
+                        "Read2" : f"{read2} + {read2_failed}",
+                        "Properly_paired" : f"{properly_paired} + {properly_paired_failed} + {properly_paired_percentage}%",
+                        "Both_reads_mapped" : f"{both_reads_mapped} + {both_reads_mapped_failed}",
+                        "Singletons" : f"{singletons} + {singletons_failed} + {singletons_percentage} + %",
+                        "Pair_in_dif_chr" : f"{pair_in_dif_chr} + {pair_in_dif_chr_failed}",
         }
         percentage_enrichment = (qual_dict["reads_aligned_in_bed"] / mapped) * 100
 
         qual_dict = {
             "Total_mapped_reads": mapped,
-            "enrichment_factor_%": percentage_enrichment
-        }
+            "enrichment_factor_%": percentage_enrichment,
+            "secondary_reads" : secondary,
+            "duplicates" : duplicates}
 
         if samtools_stderr:
             logging.warning(f" when analysing file {self.bam_file} STDERR is the following:\n {samtools_stderr}")
         
-        print(qual_dict)
         return (qual_dict)
 
 
@@ -730,7 +789,7 @@ class Bam_file:
         execute gatk AddOrReplaceReadGroups from docker image
         """
 
-        output_directory = f"{directory}/grouped_reads"
+        output_directory = f"{directory}grouped_reads"
         gatk_version = "broadinstitute/gatk:4.1.3.0"
         output_file = f"grouped_reads/{self.get_ID()}.gr.bam"
 
@@ -749,14 +808,18 @@ class Bam_file:
         cmd = f"docker run -v {directory}:/work_data -it {gatk_version} gatk AddOrReplaceReadGroups \
           -I /work_data/{self.get_bamfile()}    \
           -O /work_data/{output_file}           \
-		  -RGID 4 \
+		  -RGID IlluminaFlowcell+L001 \
 		  -RGLB {self.get_ID()} \
 		  -RGPL ILLUMINA \
-		  -RGPU unit1 \
-		  -RGSM 20"
+		  -RGPU L001 \
+		  -RGSM THROMBOSI"
         logging.info(f"Add or replace groups:\n {cmd}")
+        #uncomment
         subprocess.run(cmd, shell=True)
-        path_output_file=f"{output_directory}/{self.get_ID()}.gr"
+        path_output_file=f"{output_directory}/{self.get_ID()}.gr.bam"
+
+        if not os.path.isfile(path_output_file):
+            raise FilesNotFound(f"the output of AddOrReplaceReadGroups does not exists: {path_output_file}")
         return(path_output_file)
 
     def mark_duplicates (self):
@@ -764,7 +827,7 @@ class Bam_file:
         already done in the files so we won't apply this filter, the reads that are marked as duplicated will be ignored by the gatk haplotype caller.
         """
 
-        picard_path = "/home/ocanal/Desktop/INSTALLATION/picard"
+        picard_path = "/home/ocanal/INSTALLATION/picard"
         duplicates_folder = f"{directory}/marked_duplicates_BAM"
         gr_marked_bam_file = f"{duplicates_folder}/{self.get_ID()}markDuplicates.bam" 
 
@@ -789,8 +852,12 @@ class Bam_file:
 
         logging.info(f"Marking duplicates: \n {duplicates_cmd}")
 
+        #UNCOMMENT
         subprocess.run(duplicates_cmd, shell= True)
 
+        if not os.path.isfile(gr_marked_bam_file):
+            raise(FilesNotFound(f"MarkDuplicates output does not exists {gr_marked_bam_file}"))
+    
         return (gr_marked_bam_file)
 
 
@@ -812,7 +879,7 @@ class Bam_file:
         rel_ready_bam = f"ready_BAM/{self.get_ID()}_recab.bam"
         abs_ready_bam = f"{directory}{rel_ready_bam}"
         #reference dbsnp common variant file
-        gatk_common_variants_file = "/home/ocanal/vep_data/gatk_resources/hg19/v150/"
+        gatk_common_variants_file = "/home/ocanal/vep_data/gatk_resources/hg19/"
         
         dir_exists = os.path.exists(quality_recab_folder)
         if dir_exists:
@@ -833,11 +900,17 @@ class Bam_file:
          --known-sites /dbSNP/00-All.vcf.gz\
          -O /work_data/{rel_metrics_f}"
         
-        logging.info(f"Appliying base recalibration: \n {recal_cmd}")
-        # print(recal_cmd)
+        logging.info(f"Appliying base recalibration: \n {recal_cmd}")  
+
+        #uncomment
         subprocess.run(recal_cmd, shell=True)
 
-        # apply base recalibration based on metrix file
+        abspth_rel_metrics_f = os.path.join(directory,rel_metrics_f)
+        if not os.path.isfile(abspth_rel_metrics_f):
+            raise(FilesNotFound(f"BaseRecalibrator metrics file {abspth_rel_metrics_f} does not exist"))
+
+
+        #apply base recalibration based on metrix file
         apply_recal_cmd = f"docker run \
         -v {directory}:/work_data \
         -v $HOME/vep_data:/opt/vep/.vep:Z \
@@ -847,6 +920,7 @@ class Bam_file:
         --bqsr-recal-file /work_data/{rel_metrics_f} \
         -O /work_data/{rel_ready_bam}"
         logging.info(apply_recal_cmd)
+        # UNCOMMENT
         subprocess.run(apply_recal_cmd, shell = True)
 
         return(abs_ready_bam)
@@ -861,6 +935,7 @@ class Bam_file:
 
         cmd = f"samtools index {abs_ready_bam} {abs_ready_bam_ind}"
         logging.info(f"indexing Bam file:\n {cmd}")
+        #uncomment
         subprocess.run(cmd, shell=True)
 
     def haplotype_caller (self):
@@ -872,8 +947,7 @@ class Bam_file:
         dir_exists = os.path.exists(output_directory)
         rel_output_file = f"vcf/{self.get_full_ID()}.vcf.gz"
         rel_ready_bam = f"ready_BAM/{self.get_ID()}_recab.bam"
-        bed_panel_path = "/home/ocanal/vep_data/tromb_bed"
-        bed_panel_file = "THROMBOSIS.V1.61.CDS.bed"
+
         if dir_exists:
             pass 
 
@@ -889,10 +963,10 @@ class Bam_file:
 
         cmd = f"docker run \
         -v {directory}:/work_data \
-        -v {bed_panel_path}:/bed_panel \
+        -v {bed_folder}:/bed_panel \
         -v {reference_genome_path}:/reference \
         -it {gatk_version} gatk HaplotypeCaller \
-        -L /bed_panel/{bed_panel_file} \
+        -L /bed_panel/{bed_file} \
         -R /reference/{reference_genome} \
         -I /work_data/{rel_ready_bam} \
         -O /work_data/{rel_output_file}"
@@ -900,6 +974,7 @@ class Bam_file:
 
 
         logging.info(f"Running Haplotype caller: \n {cmd}")
+        #UNCOMMENT
         subprocess.run(cmd, shell=True )
 
 
@@ -955,8 +1030,8 @@ class Vcf_Class:
         #maxEntScan get splice sites predictions
         maxEntScan_data = "/opt/vep/.vep/maxEntScan/maxent_data/"
         #SplicaAI data
-        path_SpliceAI_snv = "/opt/vep/.vep/SpliceAI/ghrc38/spliceai_scores.raw.snv.hg38.vcf.gz"
-        path_SpliceAI_indel = "/opt/vep/.vep/SpliceAI/ghrc38/spliceai_scores.raw.indel.hg38.vcf.gz"
+        path_SpliceAI_snv = "/opt/vep/.vep/SpliceAI/spliceai_scores.raw.snv.hg19.vcf.gz"
+        path_SpliceAI_indel = "/opt/vep/.vep/SpliceAI/spliceai_scores.raw.indel.hg19.vcf.gz"
 
         #CADD path
         path_snvCADD = "/opt/vep/.vep/CADD/hg19/gnomad.genomes.r2.1.1.snv.tsv.gz"
@@ -970,25 +1045,43 @@ class Vcf_Class:
         #          --plugin REVEL,{path_revel_data}\
         #          --plugin CADD,{path_snvCADD},{path_indelsCADD}\
       
+        if pluggins_activated == True:
 
-        cmd = f"docker run \
-        -v {self.abs_directory}:/work_data \
-        -v {reference_genome_path}:/reference \
-        -v $HOME/vep_data:/opt/vep/.vep:Z \
-        -it {vep} vep \
-        --cache --offline \
-        --fasta /reference/{reference_genome_file} \
-        --format vcf \
-        --tab \
-        --assembly GRCh37 \
-        --hgvsg --everything --force_overwrite \
-        -i /work_data/{self.rel_path} \
-        --plugin REVEL,{path_revel_data}\
-        --plugin CADD,{path_snvCADD},{path_indelsCADD}\
-        --plugin MaxEntScan,{maxEntScan_data},SWA \
-        -o /work_data/{rel_ouptut_file}"
+            cmd = f"docker run \
+                -v {self.abs_directory}:/work_data \
+                -v {reference_genome_path}:/reference \
+                -v $HOME/vep_data:/opt/vep/.vep:Z \
+                -it {vep} vep \
+                --cache --offline \
+                --fasta /reference/{reference_genome_file} \
+                --format vcf \
+                --tab \
+                --assembly GRCh37 \
+                --hgvsg --everything --force_overwrite \
+                -i /work_data/{self.rel_path} \
+                --plugin SpliceAI,snv={path_SpliceAI_snv},indel={path_SpliceAI_indel}\
+                --plugin REVEL,{path_revel_data}\
+                --plugin CADD,{path_snvCADD},{path_indelsCADD}\
+                --plugin MaxEntScan,{maxEntScan_data},SWA \
+                -o /work_data/{rel_ouptut_file}"
+
+        else:
+            cmd = f"docker run \
+                -v {self.abs_directory}:/work_data \
+                -v {reference_genome_path}:/reference \
+                -v $HOME/vep_data:/opt/vep/.vep:Z \
+                -it {vep} vep \
+                --cache --offline \
+                --fasta /reference/{reference_genome_file} \
+                --format vcf \
+                --tab \
+                --assembly GRCh37 \
+                --hgvsg --everything --force_overwrite \
+                -i /work_data/{self.rel_path} \
+                -o /work_data/{rel_ouptut_file}"
 
         logging.info(f"Running VEP:\n {cmd}")
+        #Uncomment
         run = subprocess.run(cmd, shell=True)
 
 
@@ -1008,15 +1101,51 @@ class Vcf_Class:
         
         #Insert a column named RB at the 0th column of the dataframe with the RB identifier of the sample
         #final_pd = pd_dataframe.insert(0, 'RB' ,self.get_full_ID())
-        #print(final_pd)
         #return (final_pd)
+
+    def comparing_vcf_vep (self, vcf_pddf, vep_variation_list):
+        """
+        When insertions or deletions appears, sometimes the position in the vcf file and in the annotated file changes.
+        Example in vcf:
+        chr13   114566824    .   CCAG    C
+
+        in vep:
+        chr13_114566825_CAG/-
+
+        Is the same deletion but with different nomenclature. In this cases the position varies in +-1.
+        For this reason we apply this function, if the position of the vep is not on the vcf,
+        it detects if it appears a variant with a location of +-1 on the vcf and if it is ture,
+        it changes the vep location to extract information from the vcf as the allele depth.
+        """
+        index_list = 0
+
+        for vep_variation in vep_variation_list:
+            chrom = vep_variation[0]
+            pos = int(vep_variation[1])
+
+            # checking if a variant with the chr and position specified in the vep file exits in the vcf file
+            if ((vcf_pddf["CHROM"] == chrom) & (vcf_pddf["POS"] == pos)).any() == True:
+                pass
+
+            elif ((vcf_pddf["CHROM"] == chrom) & (vcf_pddf["POS"] == pos+1)).any() == True:
+                # change the position of the vep_variation list to the one that is in the vcf pandas dataframe
+                vep_variation_list[index_list][1] = pos + 1
+
+            elif ((vcf_pddf["CHROM"] == chrom) & (vcf_pddf["POS"] == pos - 1)).any() == True:
+                # change the position of the vep_variation list to the one that is in the vcf pandas dataframe
+                vep_variation_list[index_list][1] = pos - 1    
+
+            index_list += 1
+
+        print(f"vep variation list: {vep_variation_list}")
+        return(vep_variation_list)
 
 
     def add_RB_column (self, pd_df):
         
 
         pd_df["RB"] = self.get_full_ID()
-        print(pd_df)
+
         return(pd_df)
 
     def filtering_df_by_AlleFreq (self, pd_df, freq):
@@ -1029,7 +1158,10 @@ class Vcf_Class:
         
         #converting MAX_AF values into floats to perform the comparasion with freq
         pd_df_FreqNotNull['MAX_AF'] = pd_df_FreqNotNull['MAX_AF'].astype(float)
-    
+
+        
+
+
         return(pd_df_FreqNotNull.loc[pd_df_FreqNotNull['MAX_AF'] <= freq])
 
 
@@ -1039,7 +1171,7 @@ class Vcf_Class:
         """
 
         #column names to give to the pandas dataframe (using the same as the vcf file)
-        colnames = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", "20"]
+        colnames = ["CHROM", "POS", "ID", "REF", "ALT", "QUAL", "FILTER", "INFO", "FORMAT", "THROMBOSI"]
 
         return(pd.read_csv(self.vcf_absPath, compression="gzip", names=colnames, sep="\t", comment="#"))
 
@@ -1075,9 +1207,14 @@ class Vcf_Class:
 
         #qual = pd_df["QUAL"].where((pd_df["POS"] == "1554362") & (pd_df["CHROM"] == "chr1"))
         #print(f"pos = {pos}")
-        return(pd_df.loc[(pd_df["CHROM"] ==chrom) & (pd_df["POS"] == pos), property])
+        print(f"in extract_vcf_colums, pd_df: {pd_df}")
+
+
+        return(pd_df.loc[(pd_df["CHROM"] == chrom) & (pd_df["POS"] == pos), property])
     
     def extract_variant_coverage (self, mosdepth_pddf, chrom=str, pos= int):
+        """ The vcf contains regions and the number of bases that are covered at a certain coverage (1, 10, 20, 30, 100 and 200)
+            If the total number of bases of the region are covered by certain coverage, the highest coverage is returned """
         x1 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "1X"])
         x10 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "10X"])
         x20 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "20X"])
@@ -1087,7 +1224,7 @@ class Vcf_Class:
         start = int((mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "start"]))
         end = int((mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "end"]))
         bases = end - start
-        print(x1, x10, x20, x30, x100, x200, start, end, bases)
+        
         if x200 >= bases:
             return ("200x")
         elif x100 >= bases:
@@ -1109,14 +1246,14 @@ class Vcf_Class:
         
         colnames = ["chrom", "start", "end", "region", "1X", "10X", "20X", "30X", "100X", "200X"]
         mosdepth_pddf = pd.read_csv(f"{abs_output_dir}RB31799_mosdepth.thresholds.bed.gz", compression="gzip", names = colnames, sep="\t", comment="#")
-        print(mosdepth_pddf)
+        
         return(mosdepth_pddf)
 
     def add_coverage_df (self, pddf, coverage_list):
         pddf["exon_coverage"]= coverage_list
         return(pddf)
 
-    def extract_ref_alt_reads ( self, values_list):
+    def extract_ref_alt_reads ( self, variants_info_list):
         """
         Get the total amount of reads of a variant position,
         the total amount of alternative reads supporting a variant,
@@ -1125,7 +1262,10 @@ class Vcf_Class:
         alt_reads_list = []
         total_reads_list = []
         percent_alt_list = []
-        for values in values_list:
+        print(variants_info_list)
+        for values in variants_info_list:
+            print(values)
+            #f info column of the vcf file
             params = values[0].split(":")
 
             #AD where it is stored ref_reads,alt_reads is situated in params[1]
@@ -1147,7 +1287,12 @@ class Vcf_Class:
         """
         Adds the quality of the reads extracted from the vcf file to the pandas dataframe
         """
-        pd_df["QUAL"] = qual
+        print (f"qual: {qual}")
+        final_list=[]
+        for q in qual:
+            final_list.append(q[0])
+        pd_df["QUAL"] = final_list
+
         return(pd_df)
 
     def add_df_coverage(self, pddf, coverage_variant):
@@ -1166,8 +1311,6 @@ class Vcf_Class:
         coverage_dic = {}
         x1_region_call = x10_region_call = x20_region_call = x30_region_call = x100_region_call = x200_region_call = 0
         x1_exon_lost = x10_exon_lost = x20_exon_lost = x30_exon_lost = x100_exon_lost = x200_exon_lost = 0
-        print("hey entering into coverage thing")
-        print(f"just entered to the call_rate_per and dictionary is: \n {qual_dict}")
        
         for index, row in mosdepth_pddf.iterrows():
 
@@ -1281,19 +1424,16 @@ class Vcf_Class:
 
         qual_dict["mean_coverage"] = mean_coverage
 
-        for key,value in qual_dict.items():
-            print (key, value)
-
         return(qual_dict)
 
     def extract_variant_coverage (self, mosdepth_pddf, chrom=str, pos= int):
         """
         It takes the rare variant from the mosdepth output (comparing that the SNP position is
         between the position interval of mosdepth), it takes the 
-        minimum x (x10, x20, x30... meaning that all bases are paired at least by this number of reads)
+        minimum x (x10, x20, x30... meaning that all bases are covered at least by this number of reads)
         and returns the maximum xnumber that all bases are covered by x number of reads.
         """
-        print(chrom, pos)
+
         try:
             x1 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "1X"]).astype(int).item()
             x10 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "10X"]).astype(int).item()
@@ -1306,11 +1446,11 @@ class Vcf_Class:
             bases = end - start
         except:
             x1 = x10 = x20 = x30 = x100 = x200 = 0
+
             start = 0
             end = 1
             bases = 1
             
-        print(x1, x10, x20, x30, x100, x200, start, end, bases)
         if x200 >= bases:
             return ("200x")
         elif x100 >= bases:
@@ -1327,9 +1467,6 @@ class Vcf_Class:
             return ("not_into_bed_interval")
 
 
-
-
-
     def reads_counts_to_df (self, pd_df, alt_reads_list, total_reads_list, percent_alt_list):
         
         pd_df["count_alternative_reads"] = alt_reads_list
@@ -1339,7 +1476,6 @@ class Vcf_Class:
         return(pd_df)
         
 
-
     def extracting_columns (self, pandas_df):
         """
         From the pandas dataframe create an excel with the columns required
@@ -1347,12 +1483,84 @@ class Vcf_Class:
         # the ones that I have to add once I have applied the pluggins:
         # "SpliceAI_pred", "CADD_PHRED", "CADD_RAW", "REVEL",
         # selecting the columns of interest to extract from the pandas dataframe 
-        columns = ["RB", "Uploaded_variation", "exon_coverage", "QUAL", "%_alt_reads", "count_total_reads", "count_alternative_reads", "Consequence", "Gene", "SWISSPROT","cDNA_position", "CDS_position", "Protein_position",
-        "HGVSc", "HGVSp", "HGVSg", "MANE_SELECT", "MANE_PLUS_CLINICAL", "CLIN_SIG", "Existing_variation" ,"UNIPROT_ISOFORM", "MAX_AF", "PHENO",
-        "PUBMED", "Feature_type", "MES-SWA_acceptor_alt", "MES-SWA_acceptor_diff", "MES-SWA_acceptor_ref", "MES-SWA_acceptor_ref_comp",
-        "MES-SWA_donor_alt", "MES-SWA_donor_diff", "MES-SWA_donor_ref", "MES-SWA_donor_ref_comp"]
+        if pluggins_activated == True:
+            
+            columns =   [
+                        "RB",
+                        "Uploaded_variation",
+                        "exon_coverage",
+                        "QUAL",
+                        "Allele",
+                        "%_alt_reads",
+                        "count_total_reads",
+                        "count_alternative_reads",
+                        "Consequence",
+                        "Gene",
+                        "SWISSPROT",
+                        "cDNA_position",
+                        "CDS_position",
+                        "Protein_position",
+                        "HGVSc", 
+                        "HGVSp", 
+                        "HGVSg", 
+                        "MANE_SELECT", 
+                        "MANE_PLUS_CLINICAL", 
+                        "CLIN_SIG", 
+                        "Existing_variation",
+                        "UNIPROT_ISOFORM", 
+                        "MAX_AF", 
+                        "PHENO",
+                        "PUBMED", 
+                        "Feature",                        
+                        "Feature_type", 
+                        "Symbol",
+                        "IMPACT",
+                        "CADD_PHRED",
+                        "CADD_RAW",
+                        "SpliceAI_pred",
+                        "REVEL",
+                        "MaxEntScan_alt",
+                        "MaxEntScan_diff",
+                        "MaxEntScan_ref",
+                        "MES-SWA_acceptor_alt", 
+                        "MES-SWA_acceptor_diff", 
+                        "MES-SWA_acceptor_ref", 
+                        "MES-SWA_acceptor_ref_comp",
+                        "MES-SWA_donor_alt",
+                        "MES-SWA_donor_diff",
+                        "MES-SWA_donor_ref",
+                        "MES-SWA_donor_ref_comp"
+                        ]
+        else:
+            columns =  [
+                        "RB",
+                        "Uploaded_variation",
+                        "exon_coverage",
+                        "QUAL",
+                        "%_alt_reads",
+                        "count_total_reads",
+                        "count_alternative_reads",
+                        "Consequence",
+                        "Gene",
+                        "SWISSPROT",
+                        "cDNA_position",
+                        "CDS_position",
+                        "Protein_position",
+                        "HGVSc", 
+                        "HGVSp", 
+                        "HGVSg", 
+                        "MANE_SELECT", 
+                        "MANE_PLUS_CLINICAL", 
+                        "CLIN_SIG", 
+                        "Existing_variation",
+                        "UNIPROT_ISOFORM", 
+                        "MAX_AF", 
+                        "PHENO",
+                        "PUBMED", 
+                        "Feature_type"
+                        ]
         # creating a pd dataframe with the columns of interest
-        print(pandas_df[columns])
+
         return(pandas_df[columns])
 
     def df_to_excel (self, final_pd):
