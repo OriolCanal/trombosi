@@ -1,5 +1,7 @@
 # trombosi
 
+If I want to include some more parameter in the qual dict, I have to add it also into the rearrange_df_cols
+
 ## Pipeline description
 
 To run this pipeline we need to have the plugins installed, and the cache file of the vep program also installed
