@@ -199,17 +199,17 @@ class FASTQ_file:
         # create the bam file from the sam file
         cmd1 = f"samtools view -S -b {sam} > {bam_file}"
         logging.info(f"Compressing the SAM file into a BAM file : \n{cmd1}")
-        subprocess.run(cmd1, shell=True)
+        #subprocess.run(cmd1, shell=True)
 
         # sort the bam file
         cmd2 = f"samtools sort {bam_file} -o {sorted_bam_file}"
         logging.info(f"Sorting the BAM file: \n {cmd2}")
-        subprocess.run(cmd2, shell=True)
+        #subprocess.run(cmd2, shell=True)
 
         # create the index bam file
         cmd3 = f"samtools index {sorted_bam_file}"
         logging.info(f"Creating the index file: \n {cmd3}")
-        subprocess.run(cmd3, shell=True)
+        #subprocess.run(cmd3, shell=True)
 
         if not os.path.isfile(sorted_bam_file):
             raise (FilesNotFound("The sorted bam file hasn't been craeted"))
@@ -278,7 +278,8 @@ class Paired_FASTQ_file(FASTQ_file):
         cmd = f"fastqc --extract -o {output_directory} {self.fastq_absPath} {self.paired_fastq_absPath}"
 
         logging.info (f"Running FastQC:\n{cmd}")
-        result = subprocess.run(cmd, shell = True)
+        #Uncommment
+        #result = subprocess.run(cmd, shell = True)
 
         # the output dirname of the fasqc is the fastq file but instead of .fastq is _fastq
         fastqc_dir = self.fastq_file.replace(".", "_")
@@ -465,6 +466,7 @@ class Paired_FASTQ_file(FASTQ_file):
 
         logging.info(trim_cmd)
         #run trimmomatic using subprocess.run  
+        #uncomment
         result = subprocess.run(trim_cmd, stderr = subprocess.PIPE, stdout= subprocess.PIPE, shell = True)
         
         for trim_output_file in trim_output_files:
@@ -472,11 +474,11 @@ class Paired_FASTQ_file(FASTQ_file):
                 raise(FilesNotFound(f"Trimmomatic output {trim_output_file} has not been found"))
 
         stderr = str(result.stderr)
-        total_read_pairs_match = re.search("Read Pairs: (\d+)", stderr).group(0)
-        surviving_reads_match = re.search ("Both Surviving: (\d+)", stderr).group(0)
-        only_forward_drop_match = re.search("Forward Only Surviving: (\d+)", stderr).group(0)
-        only_reverse_drop_match = re.search("Reverse Only Surviving: (\d+)", stderr).group(0)
-        dropped_match = re.search("Dropped: (\d+)", stderr).group(0)
+        total_read_pairs_match = re.search(r"Read Pairs: (\d+)", stderr).group(0)
+        surviving_reads_match = re.search (r"Both Surviving: (\d+)", stderr).group(0)
+        only_forward_drop_match = re.search(r"Forward Only Surviving: (\d+)", stderr).group(0)
+        only_reverse_drop_match = re.search(r"Reverse Only Surviving: (\d+)", stderr).group(0)
+        dropped_match = re.search(r"Dropped: (\d+)", stderr).group(0)
 
         #obtaining the output quality parameters
         total_read_pairs = int(total_read_pairs_match.replace("Read Pairs: ", ""))
@@ -491,6 +493,7 @@ class Paired_FASTQ_file(FASTQ_file):
         only_reverse_drop_perc = (only_reverse_drop / total_read_pairs) * 100
         dropped_perc = (dropped / total_read_pairs) * 100
 
+        qual_dict["Run"] = run_name
         qual_dict["total_read_pairs"] = total_read_pairs
         qual_dict["surviving_reads_pairs"] = surviving_reads_pairs
         qual_dict["surviving_reads_pairs_perc"] = surviving_reads_pairs_perc
@@ -504,7 +507,7 @@ class Paired_FASTQ_file(FASTQ_file):
         return (forward_paired_trimmed_fastq, forward_unpaired_trimmed_fastq, reverse_paired_trimmed_fastq, reverse_unpaired_trimmed_fastq, qual_dict)
 
 
-    def align_to_reference_hg38(self, forward_paired_trimmed_fastq, reverse_paired_trimmed_fastq):
+    def align_to_reference_hg37(self, forward_paired_trimmed_fastq, reverse_paired_trimmed_fastq):
         """
         align the paired reads to the reference genome to create a bam file
         """
@@ -537,26 +540,26 @@ class Paired_FASTQ_file(FASTQ_file):
 
         #command to run bwa mem for the alignment of the reads to the reference genome hg38
         # UNCOMMENT
-        cmd = ["bwa", "mem",
-             "-M", #mark secondary alignments
-             "-S", #output in sam format
-             "-t 6", #using 6 CPUs   
-             abs_reference_genome_file,
-             forward_paired_trimmed_fastq,
-             reverse_paired_trimmed_fastq,
-            # "-o",
-            # bam
-             ]
-        logging.info(cmd)
+        # cmd = ["bwa", "mem",
+        #      "-M", #mark secondary alignments
+        #      "-S", #output in sam format
+        #      "-t 6", #using 6 CPUs   
+        #      abs_reference_genome_file,
+        #      forward_paired_trimmed_fastq,
+        #      reverse_paired_trimmed_fastq,
+        #     # "-o",
+        #     # bam
+        #      ]
+        # logging.info(cmd)
 
-        #UNCOMMENT
-        result = subprocess.run(cmd, cwd=sam_folder, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print (result.stderr)
-        if result.returncode == 0:
-            logging.info("Alignment was successful!")
-            #redirect the output to the output aligned file
-            with open(sam, "wb") as output_file:
-                output_file.write(result.stdout)
+        # #UNCOMMENT
+        # result = subprocess.run(cmd, cwd=sam_folder, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # print (result.stderr)
+        # if result.returncode == 0:
+        #     logging.info("Alignment was successful!")
+        #     #redirect the output to the output aligned file
+        #     with open(sam, "wb") as output_file:
+        #         output_file.write(result.stdout)
 
         
         return (sam)
@@ -657,7 +660,7 @@ class Bam_file:
             /work_data/{self.get_bamfile()}"
 
         logging.info(f"running mosdepth to obtain coverage parameters: \n {cmd}")
-        subprocess.run(cmd, shell=True)
+        #subprocess.run(cmd, shell=True)
 
         #converting the output to a pandas dataframe
         thresholds_output = f"{abs_output_dir}{mosdepth_outname}.thresholds.bed.gz"
@@ -815,7 +818,7 @@ class Bam_file:
 		  -RGSM THROMBOSI"
         logging.info(f"Add or replace groups:\n {cmd}")
         #uncomment
-        subprocess.run(cmd, shell=True)
+        # subprocess.run(cmd, shell=True)
         path_output_file=f"{output_directory}/{self.get_ID()}.gr.bam"
 
         if not os.path.isfile(path_output_file):
@@ -853,7 +856,7 @@ class Bam_file:
         logging.info(f"Marking duplicates: \n {duplicates_cmd}")
 
         #UNCOMMENT
-        subprocess.run(duplicates_cmd, shell= True)
+        # subprocess.run(duplicates_cmd, shell= True)
 
         if not os.path.isfile(gr_marked_bam_file):
             raise(FilesNotFound(f"MarkDuplicates output does not exists {gr_marked_bam_file}"))
@@ -890,20 +893,20 @@ class Bam_file:
 
         # create metrics file for base recalibrator (If I don't open the file an error appears: the metrics file doesn't exist) 
         # UNCOMMENT
-        recal_cmd = f"docker run \
-         -v {directory}:/work_data \
-         -v $HOME/vep_data:/opt/vep/.vep:Z \
-         -v {gatk_common_variants_file}:/dbSNP \
-         -it {gatk_version} gatk BaseRecalibrator \
-         -I /work_data/{rel_duplicates_file} \
-         -R /opt/vep/.vep/fasta_file/grch37/GRCh37.p13.genome.fa \
-         --known-sites /dbSNP/00-All.vcf.gz\
-         -O /work_data/{rel_metrics_f}"
+        # recal_cmd = f"docker run \
+        #  -v {directory}:/work_data \
+        #  -v $HOME/vep_data:/opt/vep/.vep:Z \
+        #  -v {gatk_common_variants_file}:/dbSNP \
+        #  -it {gatk_version} gatk BaseRecalibrator \
+        #  -I /work_data/{rel_duplicates_file} \
+        #  -R /opt/vep/.vep/fasta_file/grch37/GRCh37.p13.genome.fa \
+        #  --known-sites /dbSNP/00-All.vcf.gz\
+        #  -O /work_data/{rel_metrics_f}"
         
-        logging.info(f"Appliying base recalibration: \n {recal_cmd}")  
+        # logging.info(f"Appliying base recalibration: \n {recal_cmd}")  
 
         #uncomment
-        subprocess.run(recal_cmd, shell=True)
+        # subprocess.run(recal_cmd, shell=True)
 
         abspth_rel_metrics_f = os.path.join(directory,rel_metrics_f)
         if not os.path.isfile(abspth_rel_metrics_f):
@@ -911,17 +914,17 @@ class Bam_file:
 
 
         #apply base recalibration based on metrix file
-        apply_recal_cmd = f"docker run \
-        -v {directory}:/work_data \
-        -v $HOME/vep_data:/opt/vep/.vep:Z \
-        -it {gatk_version} gatk ApplyBQSR \
-        -R /opt/vep/.vep/fasta_file/grch37/GRCh37.p13.genome.fa \
-        -I /work_data/{rel_duplicates_file} \
-        --bqsr-recal-file /work_data/{rel_metrics_f} \
-        -O /work_data/{rel_ready_bam}"
-        logging.info(apply_recal_cmd)
-        # UNCOMMENT
-        subprocess.run(apply_recal_cmd, shell = True)
+        # apply_recal_cmd = f"docker run \
+        # -v {directory}:/work_data \
+        # -v $HOME/vep_data:/opt/vep/.vep:Z \
+        # -it {gatk_version} gatk ApplyBQSR \
+        # -R /opt/vep/.vep/fasta_file/grch37/GRCh37.p13.genome.fa \
+        # -I /work_data/{rel_duplicates_file} \
+        # --bqsr-recal-file /work_data/{rel_metrics_f} \
+        # -O /work_data/{rel_ready_bam}"
+        # logging.info(apply_recal_cmd)
+        # # UNCOMMENT
+        # subprocess.run(apply_recal_cmd, shell = True)
 
         return(abs_ready_bam)
 
@@ -936,7 +939,7 @@ class Bam_file:
         cmd = f"samtools index {abs_ready_bam} {abs_ready_bam_ind}"
         logging.info(f"indexing Bam file:\n {cmd}")
         #uncomment
-        subprocess.run(cmd, shell=True)
+        #subprocess.run(cmd, shell=True)
 
     def haplotype_caller (self):
         """
@@ -975,7 +978,7 @@ class Bam_file:
 
         logging.info(f"Running Haplotype caller: \n {cmd}")
         #UNCOMMENT
-        subprocess.run(cmd, shell=True )
+        #subprocess.run(cmd, shell=True )
 
 
 class Vcf_Class:
@@ -1082,7 +1085,7 @@ class Vcf_Class:
 
         logging.info(f"Running VEP:\n {cmd}")
         #Uncomment
-        run = subprocess.run(cmd, shell=True)
+        #run = subprocess.run(cmd, shell=True)
 
 
     def vep_parser (self):
@@ -1137,7 +1140,7 @@ class Vcf_Class:
 
             index_list += 1
 
-        print(f"vep variation list: {vep_variation_list}")
+        #print(f"vep variation list: {vep_variation_list}")
         return(vep_variation_list)
 
 
@@ -1192,7 +1195,7 @@ class Vcf_Class:
         for var in chr_position_list:
             items = var.split("_")
             chr_position = [items[0], int(items[1])]
-            print (f"chr position  {chr_position}")
+            #print (f"chr position  {chr_position}")
             chr_position_listoflist.append(chr_position)
         
         return(chr_position_listoflist)
@@ -1207,7 +1210,7 @@ class Vcf_Class:
 
         #qual = pd_df["QUAL"].where((pd_df["POS"] == "1554362") & (pd_df["CHROM"] == "chr1"))
         #print(f"pos = {pos}")
-        print(f"in extract_vcf_colums, pd_df: {pd_df}")
+        #print(f"in extract_vcf_colums, pd_df: {pd_df}")
 
 
         return(pd_df.loc[(pd_df["CHROM"] == chrom) & (pd_df["POS"] == pos), property])
@@ -1215,16 +1218,27 @@ class Vcf_Class:
     def extract_variant_coverage (self, mosdepth_pddf, chrom=str, pos= int):
         """ The vcf contains regions and the number of bases that are covered at a certain coverage (1, 10, 20, 30, 100 and 200)
             If the total number of bases of the region are covered by certain coverage, the highest coverage is returned """
-        x1 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "1X"])
-        x10 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "10X"])
-        x20 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "20X"])
-        x30 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "30X"])
-        x100 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "100X"])
-        x200 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "200X"])
-        start = int((mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "start"]))
-        end = int((mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "end"]))
-        bases = end - start
-        
+        print("entering into extract_variant")
+        filtered_df = mosdepth_pddf[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos) ]
+
+        if not filtered_df.empty:
+            x1 = int(filtered_df.iloc[0]["1X"])
+            x10 = int(filtered_df.iloc[0]["10X"])
+            x20 = int(filtered_df.iloc[0]["20X"])
+            x30 = int(filtered_df.iloc[0]["30X"])
+            x100 = int(filtered_df.iloc[0]["100X"])
+            x200 = int(filtered_df.iloc[0]["200X"])
+            start = int(filtered_df.iloc[0]["start"])
+            end = int(filtered_df.iloc[0]["end"])
+            bases = end - start
+
+        else:
+            logging.critical(f"no match was found in the mosdepth threshold regions for the variant with chr = {chrom} , pos = {pos}")
+            x1 = x10 = x20 = x30 = x100 = x200 = 0
+            start = 0
+            end = 1
+            bases = 1
+
         if x200 >= bases:
             return ("200x")
         elif x100 >= bases:
@@ -1239,6 +1253,7 @@ class Vcf_Class:
             return("1x")
         else:
             return ("not_covered")
+
 
     def get_coverage(self):
 
@@ -1287,7 +1302,7 @@ class Vcf_Class:
         """
         Adds the quality of the reads extracted from the vcf file to the pandas dataframe
         """
-        print (f"qual: {qual}")
+        #print (f"qual: {qual}")
         final_list=[]
         for q in qual:
             final_list.append(q[0])
@@ -1425,46 +1440,35 @@ class Vcf_Class:
         qual_dict["mean_coverage"] = mean_coverage
 
         return(qual_dict)
-
-    def extract_variant_coverage (self, mosdepth_pddf, chrom=str, pos= int):
-        """
-        It takes the rare variant from the mosdepth output (comparing that the SNP position is
-        between the position interval of mosdepth), it takes the 
-        minimum x (x10, x20, x30... meaning that all bases are covered at least by this number of reads)
-        and returns the maximum xnumber that all bases are covered by x number of reads.
-        """
-
+    
+    def create_mane_pddf (self, mane_file):
+        """ Create a pandas dataframe for the mane file. Ensembl_nuc, however contains a .digit that will be removed using a split"""
+        mane_pd = pd.read_csv(mane_file, sep="\t")
+        mane_pd["Ensembl_nuc"] = mane_pd["Ensembl_nuc"].apply(lambda x: x.split(".")[0])
+        return mane_pd
+    
+    def extract_feature (self, pddf):
+        """Extract the features that is the same value as ensembl nuc in the mane dataframe to obtain the mane status of each variant"""
+        features = pddf["Feature"].tolist()
+        return (features)
+    
+    def extract_mane(self, mane_pddf, feature):
+        """extract the mane status from the feature file extracte from the variants and comparing it with the Ensembl_nuc."""
+        
+        #if the feature is found we will extract the mane status field
         try:
-            x1 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "1X"]).astype(int).item()
-            x10 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "10X"]).astype(int).item()
-            x20 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "20X"]).astype(int).item()
-            x30 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "30X"]).astype(int).item()
-            x100 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "100X"]).astype(int).item()
-            x200 = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "200X"]).astype(int).item()
-            start = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "start"]).astype(int).item()
-            end = (mosdepth_pddf.loc[(mosdepth_pddf["chrom"] == chrom) & (mosdepth_pddf["start"]<= pos) & (mosdepth_pddf["end"]>pos), "end"]).astype(int).item()
-            bases = end - start
+            mane = (mane_pddf.loc[(mane_pddf["Ensembl_nuc"] == feature), "MANE_status"]).astype(str).item()
+        
+        #If no match an exception is raised as item is not allowed when having an empty serie
         except:
-            x1 = x10 = x20 = x30 = x100 = x200 = 0
-
-            start = 0
-            end = 1
-            bases = 1
-            
-        if x200 >= bases:
-            return ("200x")
-        elif x100 >= bases:
-            return ("100x")
-        elif x30 >= bases:
-            return ("30x")
-        elif x20 >= bases:
-            return("20x")
-        elif x10 >= bases:
-            return("10x")
-        elif x1 >= bases:
-            return("1x")
-        else:
-            return ("not_into_bed_interval")
+            mane = "-"
+    
+        
+        return (mane)
+    
+    def add_mane_to_pddf (self, mane_list, pddf):
+        pddf["MANE_status"] = mane_list
+        return (pddf)
 
 
     def reads_counts_to_df (self, pd_df, alt_reads_list, total_reads_list, percent_alt_list):
@@ -1489,8 +1493,8 @@ class Vcf_Class:
                         "RB",
                         "Uploaded_variation",
                         "exon_coverage",
-                        "QUAL",
                         "Allele",
+                        "MANE_status",
                         "%_alt_reads",
                         "count_total_reads",
                         "count_alternative_reads",
@@ -1502,9 +1506,7 @@ class Vcf_Class:
                         "Protein_position",
                         "HGVSc", 
                         "HGVSp", 
-                        "HGVSg", 
-                        "MANE_SELECT", 
-                        "MANE_PLUS_CLINICAL", 
+                        "HGVSg",
                         "CLIN_SIG", 
                         "Existing_variation",
                         "UNIPROT_ISOFORM", 
@@ -1513,7 +1515,8 @@ class Vcf_Class:
                         "PUBMED", 
                         "Feature",                        
                         "Feature_type", 
-                        "Symbol",
+                        "SYMBOL",
+                        "QUAL",
                         "IMPACT",
                         "CADD_PHRED",
                         "CADD_RAW",

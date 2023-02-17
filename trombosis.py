@@ -181,7 +181,7 @@ def list_readybam_files(directory):
 #     trimmed_fqfile = FastQ_class.trim_fastq()
 
 #     #Align the trimmed file to the reference genome Hg38
-#     sam_file = FastQ_class.align_to_reference_hg38(trimmed_fqfile)
+#     sam_file = FastQ_class.align_to_reference_hg37(trimmed_fqfile)
 
 #     #Calculate %enrichment = number of raeds aligned in bed region / total number of reads aligned
 #     FastQ_class.enrichment(sam_file)
@@ -221,7 +221,7 @@ def paired_reads_fastq_to_bam(fq_file_1, fq_file_2, qual_dict):
         print(key, value)
 
     # align the paired reads to the reference genome
-    sam_file = Paired_FastQ_class.align_to_reference_hg38(trimmed_fq[0], trimmed_fq[2])
+    sam_file = Paired_FastQ_class.align_to_reference_hg37(trimmed_fq[0], trimmed_fq[2])
 
     # Convert the sam file to a sorted bam file along with its index
     sorted_bam = Paired_FastQ_class.sam_to_sorted_bam(sam_file)
@@ -333,8 +333,16 @@ def bam_to_final_excel(sorted_bam, qual_dict):
 
     coverage_df = Vcf_file_Class.add_coverage_df(reads_df,coverage_variant)
 
+    mane_pddf = Vcf_file_Class.create_mane_pddf("/home/ocanal/vep_data/mane_data/MANE.GRCh38.v1.0.summary.txt")
+    feature_list = Vcf_file_Class.extract_feature(coverage_df)
+    mane_list = []
+    for feature in feature_list:
+        mane = Vcf_file_Class.extract_mane(mane_pddf, feature)
+        mane_list.append(mane)
+
+    complete_df = Vcf_file_Class.add_mane_to_pddf(mane_list, coverage_df)
     # Extracting the columns that we want in the final excel
-    reduced_pandas = Vcf_file_Class.extracting_columns(coverage_df)
+    reduced_pandas = Vcf_file_Class.extracting_columns(complete_df)
     # print(coverage_df)
 
     # Creating the resulting excel
@@ -396,13 +404,73 @@ def join_excels(parent_dir):
 def rearrange_df_cols(qual_df):
     for col in qual_df.columns:
         print(col)
-    cols = ["RB", "fastqc_version", "encoding", "numb_exons", "seq_len_R1", "seq_len_R2", "GC_R1_perc", "GC_R2_perc","total_sequences_R1", "total_sequences_R2", "total_read_pairs", "surviving_reads_pairs", "surviving_reads_pairs_perc", "dropped_trim", "dropped_perc_trim", "only_forward_drop", "only_forward_drop_perc", "only_reverse_drop", "only_reverse_drop_perc",  "dropped_trim", "dropped_perc_trim", "GC_cont_dist_R1", "GC_cont_dist_R2", "adapter_content_R1", "adapter_content_R2", "base_qual_cont_R1", "base_qual_cont_R2", "overrepresented_seq_R1", "overrepresented_seq_R2", "per_base_N_cont_R1", "per_base_N_cont_R2", "per_base_seq_qual_R1", "per_base_seq_qual_R2", "per_tile_seq_qual_R1", "per_tile_seq_qual_R2", "seq_duplic_level_R1", "seq_duplic_level_R2", "seq_len_dist_R1", "seq_len_dist_R2", "seq_qual_score_R1", "seq_qual_score_R2","seq_poor_quality_R1", "seq_poor_quality_R2", "reads_aligned_in_bed", "Total_mapped_reads", "enrichment_factor_%", "mean_coverage", "x1_call_percent", "x10_call_percent", "x20_call_percent", "x30_call_percent", "x100_call_percent", "x200_call_percent", "x1_exon_lost", "x10_exon_lost", "x20_exon_lost", "x30_exon_lost", "x100_exon_lost", "x200_exon_lost"]
+    cols = ["Run",
+            "RB",
+            "fastqc_version",
+            "encoding",
+            "numb_exons",
+            "seq_len_R1",
+            "seq_len_R2",
+            "GC_R1_perc",
+            "GC_R2_perc",
+            "total_sequences_R1",
+            "total_sequences_R2",
+            "total_read_pairs",
+            "surviving_reads_pairs",
+            "surviving_reads_pairs_perc",
+            "dropped_trim",
+            "dropped_perc_trim",
+            "only_forward_drop",
+            "only_forward_drop_perc",
+            "only_reverse_drop",
+            "only_reverse_drop_perc",
+            "dropped_trim",
+            "dropped_perc_trim",
+            "GC_cont_dist_R1",
+            "GC_cont_dist_R2",
+            "adapter_content_R1",
+            "adapter_content_R2",
+            "base_qual_cont_R1",
+            "base_qual_cont_R2",
+            "overrepresented_seq_R1",
+            "overrepresented_seq_R2",
+            "per_base_N_cont_R1",
+            "per_base_N_cont_R2",
+            "per_base_seq_qual_R1",
+            "per_base_seq_qual_R2",
+            "per_tile_seq_qual_R1",
+            "per_tile_seq_qual_R2",
+            "seq_duplic_level_R1",
+            "seq_duplic_level_R2",
+            "seq_len_dist_R1",
+            "seq_len_dist_R2",
+            "seq_qual_score_R1",
+            "seq_qual_score_R2",
+            "seq_poor_quality_R1",
+            "seq_poor_quality_R2",
+            "reads_aligned_in_bed",
+            "Total_mapped_reads",
+            "enrichment_factor_%",
+            "mean_coverage",
+            "x1_call_percent",
+            "x10_call_percent",
+            "x20_call_percent",
+            "x30_call_percent",
+            "x100_call_percent",
+            "x200_call_percent",
+            "x1_exon_lost",
+            "x10_exon_lost",
+            "x20_exon_lost",
+            "x30_exon_lost",
+            "x100_exon_lost",
+            "x200_exon_lost"]
+    
     qual_df = qual_df[cols]
     return (qual_df)
 
 
 def remove_temporary_files (directory):
-    subdirs_to_remove = ["annotations", "BAM", "FastQ_Trimmed", "grouped_reads", "marked_duplicates_BAM", "mosdepth", "Quality_report", "SAM", "vcf"]
+    subdirs_to_remove = ["BAM", "FastQ_Trimmed", "grouped_reads", "marked_duplicates_BAM", "mosdepth", "Quality_report", "SAM"]
     for dir in subdirs_to_remove:
         final_dir = os.path.join(directory,dir)
         try:
@@ -411,15 +479,15 @@ def remove_temporary_files (directory):
             print(f"Error: {final_dir} {e.strerror}")
 
 
-if __name__ =="__main__":
+if __name__ == "__main__":
 
-    #Step 1: decompress files and csorted_bamreate a list of the existing BAM files
+    # Step 1: decompress files and csorted_bamreate a list of the existing BAM files
     uncompress_files(directory)
 
-    #Step 2 detect the fastq files 
+    # Step 2 detect the fastq files 
     fq_files = list_fastq_files(directory)
 
-    #and seperate in 2 different lists the single end reads and the paired end reads
+    # and seperate in 2 different lists the single end reads and the paired end reads
     ID_fq_single_reads_list, ID_fq_paired_reads_list = match_paired_fastq(fq_files)
 
     #UNCOMMENT TO ANALYSE SINGLE READS
@@ -461,7 +529,7 @@ if __name__ =="__main__":
             print(qual_pddf)
             qual_pddf_rearranged = rearrange_df_cols(qual_pddf)
             qual_pddf_rearranged.to_excel(f"{directory}{run_name}_QC.xlsx", index = False)
-    #remove temporary intermediate (BAM, SAM, vcf ...) directories if the -x command line argument is set
+    # remove temporary intermediate (BAM, SAM, vcf ...) directories if the -x command line argument is set
     if remove_tmp_output != False:
         remove_temporary_files(directory)
 
